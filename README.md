@@ -60,6 +60,7 @@ curl http://localhost:8080/api/shipments
 - **Router**: Custom HTTP router with path parameter extraction
 - **Middleware**: Logging, CORS, security headers, panic recovery
 - **Carrier APIs**: USPS (XML), UPS/FedEx (OAuth 2.0 JSON), DHL (API key JSON)
+- **Web Scraping**: Planned fallback for tracking via carrier websites
 - **Testing**: Comprehensive TDD with mock HTTP servers
 - **Deployment**: Single binary + SQLite database file
 
@@ -246,20 +247,30 @@ kill -9 <pid>
 
 ### 🚧 **PLANNED (Future Phases)**
 
-**Phase 2: Background Services**
+**Phase 2: Alternative Tracking Methods**
+- Web scraping clients for carrier websites (fallback when APIs unavailable)
+- HTML parsing for tracking pages (USPS, UPS, FedEx, DHL public sites)
+- Headless browser automation for JavaScript-heavy tracking pages
+- CAPTCHA handling and anti-bot detection circumvention
+- Rate limiting and respectful scraping practices
+- Unified fallback system when API credentials are unavailable
+
+**Phase 3: Background Services**
 - Automatic tracking updates for active shipments
 - Configurable update intervals and scheduling
 - Database integration for tracking data persistence
 - Notification system for status changes
 - Retry logic and failure handling for API outages
+- Smart fallback from API to web scraping on failures
 
-**Phase 3: Web Interface** 
+**Phase 4: Web Interface** 
 - HTML templates with Go's `html/template`
 - Responsive design with vanilla CSS/JS
 - Dashboard and shipment management forms
 - Real-time updates and notifications
+- Configuration UI for API credentials and scraping settings
 
-**Phase 4: AI Email Processing (Part 2)**
+**Phase 5: AI Email Processing (Part 2)**
 - Email monitoring (Gmail/Outlook/IMAP)
 - AI-powered tracking number extraction
 - User approval workflow for auto-detected shipments
@@ -295,6 +306,8 @@ go build -o bin/server cmd/server/main.go
 - **Clean Architecture**: Separate layers for database, handlers, and server logic
 - **Production Ready**: Proper error handling, logging, and graceful shutdown
 - **Extensible Design**: Easy to add new carriers, endpoints, and features
+- **Resilient Tracking**: Multiple data sources (APIs + web scraping) for maximum reliability
+- **Respectful Automation**: Rate limiting and ethical web scraping practices
 
 ### Key Technical Decisions
 - **SQLite over PostgreSQL**: Simpler deployment, sufficient for single-user system
