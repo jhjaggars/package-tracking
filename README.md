@@ -5,10 +5,12 @@ A comprehensive two-part system for tracking shipments to your home, built with 
 ## Overview
 
 **Part 1: Core Tracking System** ✅ **COMPLETE**
-- Manual shipment entry with real-time tracking
-- RESTful API with comprehensive CRUD operations
-- Custom HTTP router with path parameter extraction
-- Production-ready server with graceful shutdown
+- Manual shipment entry with comprehensive CRUD operations
+- RESTful API with custom HTTP router and middleware
+- Production-ready server with graceful shutdown and signal handling
+- Carrier API integration for USPS, UPS, FedEx, and DHL
+- Unified tracking interface with standardized error handling
+- Comprehensive test coverage with TDD methodology
 
 **Part 2: AI Email Processor** 🚧 **PLANNED**
 - Automated extraction of tracking numbers from emails
@@ -57,6 +59,8 @@ curl http://localhost:8080/api/shipments
 - **Database**: SQLite for persistence with automatic migrations
 - **Router**: Custom HTTP router with path parameter extraction
 - **Middleware**: Logging, CORS, security headers, panic recovery
+- **Carrier APIs**: USPS (XML), UPS/FedEx (OAuth 2.0 JSON), DHL (API key JSON)
+- **Testing**: Comprehensive TDD with mock HTTP servers
 - **Deployment**: Single binary + SQLite database file
 
 ### Project Structure
@@ -67,6 +71,7 @@ package-tracking/
 │   ├── config/                  # Configuration management
 │   ├── database/                # Database models and operations
 │   ├── handlers/                # HTTP request handlers
+│   ├── carriers/                # Carrier API clients (USPS, UPS, FedEx, DHL)
 │   └── server/                  # Router, middleware, and server logic
 ├── go.mod                       # Go module definition
 └── database.db                  # SQLite database (auto-created)
@@ -226,19 +231,33 @@ kill -9 <pid>
 - ✅ Environment variable configuration
 - ✅ Docker-ready architecture
 
+**Carrier API Integration** ✅ **COMPLETE**
+- ✅ HTTP clients for USPS, UPS, FedEx, DHL APIs
+- ✅ Unified Client interface with standardized error handling
+- ✅ Comprehensive authentication (OAuth 2.0, API keys, user IDs)
+- ✅ Rate limiting and quota tracking for all carriers
+- ✅ Retry logic with automatic token refresh
+- ✅ Multiple data format support (XML for USPS, JSON for others)
+- ✅ Tracking number validation for all carrier formats
+- ✅ Status mapping to standardized tracking states
+- ✅ Batch processing where supported (USPS: 10, FedEx: 30, UPS/DHL: 1)
+- ✅ Rich metadata extraction (weight, dimensions, service types)
+- ✅ Event timeline parsing with location and timestamp data
+
 ### 🚧 **PLANNED (Future Phases)**
 
-**Phase 2: Web Interface**
+**Phase 2: Background Services**
+- Automatic tracking updates for active shipments
+- Configurable update intervals and scheduling
+- Database integration for tracking data persistence
+- Notification system for status changes
+- Retry logic and failure handling for API outages
+
+**Phase 3: Web Interface** 
 - HTML templates with Go's `html/template`
 - Responsive design with vanilla CSS/JS
 - Dashboard and shipment management forms
 - Real-time updates and notifications
-
-**Phase 3: Carrier API Integration**
-- HTTP clients for USPS, UPS, FedEx APIs
-- Background service for automatic tracking updates
-- Rate limiting and caching strategies
-- Retry logic and error handling
 
 **Phase 4: AI Email Processing (Part 2)**
 - Email monitoring (Gmail/Outlook/IMAP)
@@ -282,6 +301,9 @@ go build -o bin/server cmd/server/main.go
 - **Custom Router over Gorilla/Chi**: Educational value and zero dependencies
 - **Standard Library HTTP**: Reliable, well-tested, and lightweight
 - **In-Memory Testing**: Fast test execution without external dependencies
+- **Unified Client Interface**: Consistent API across all carriers despite different authentication methods
+- **Comprehensive Error Handling**: CarrierError type with retry and rate limit flags
+- **Test-Driven Development**: All carrier clients built with failing tests first
 
 ---
 
