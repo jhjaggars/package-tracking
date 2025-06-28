@@ -238,25 +238,32 @@ func (t *TrackingEventStore) GetByShipmentID(shipmentID int) ([]TrackingEvent, e
 
 // CreateEvent creates a new tracking event if it doesn't already exist
 func (t *TrackingEventStore) CreateEvent(event *TrackingEvent) error {
+	// Use a transaction to make deduplication atomic
+	tx, err := t.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // Will be ignored if tx.Commit() succeeds
+	
 	// Check if event already exists (deduplication)
 	var count int
 	checkQuery := `SELECT COUNT(*) FROM tracking_events 
 				   WHERE shipment_id = ? AND timestamp = ? AND description = ?`
-	err := t.db.QueryRow(checkQuery, event.ShipmentID, event.Timestamp, event.Description).Scan(&count)
+	err = tx.QueryRow(checkQuery, event.ShipmentID, event.Timestamp, event.Description).Scan(&count)
 	if err != nil {
 		return err
 	}
 	
 	// Skip if event already exists
 	if count > 0 {
-		return nil
+		return tx.Commit() // Commit empty transaction
 	}
 	
 	// Insert new event
-	query := `INSERT INTO tracking_events (shipment_id, timestamp, location, status, description) 
-			  VALUES (?, ?, ?, ?, ?)`
+	query := `INSERT INTO tracking_events (shipment_id, timestamp, location, status, description, created_at) 
+			  VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
 	
-	result, err := t.db.Exec(query, event.ShipmentID, event.Timestamp, 
+	result, err := tx.Exec(query, event.ShipmentID, event.Timestamp, 
 		event.Location, event.Status, event.Description)
 	if err != nil {
 		return err
@@ -268,9 +275,13 @@ func (t *TrackingEventStore) CreateEvent(event *TrackingEvent) error {
 	}
 	
 	event.ID = int(id)
-	event.CreatedAt = time.Now()
+	// Get the actual created_at timestamp from database
+	err = tx.QueryRow("SELECT created_at FROM tracking_events WHERE id = ?", event.ID).Scan(&event.CreatedAt)
+	if err != nil {
+		return err
+	}
 	
-	return nil
+	return tx.Commit()
 }
 
 // CarrierStore handles database operations for carriers

@@ -2,7 +2,9 @@ package database
 
 import (
 	"os"
+	"sync"
 	"testing"
+	"time"
 )
 
 func setupTestDB(t *testing.T) *DB {
@@ -123,5 +125,173 @@ func TestShipmentStore_GetActiveByCarrier(t *testing.T) {
 	// Should return empty slice
 	if len(activeDHLShipments) != 0 {
 		t.Errorf("Expected 0 active DHL shipments, got %d", len(activeDHLShipments))
+	}
+}
+
+func TestTrackingEventStore_CreateEvent(t *testing.T) {
+	db := setupTestDB(t)
+	
+	// First create a shipment to associate events with
+	shipment := Shipment{
+		TrackingNumber: "123456789012",
+		Carrier:        "fedex",
+		Description:    "Test Package",
+		Status:         "pending",
+		IsDelivered:    false,
+	}
+	if err := db.Shipments.Create(&shipment); err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+	
+	// Test case 1: Create new event successfully
+	event1 := TrackingEvent{
+		ShipmentID:  shipment.ID,
+		Timestamp:   time.Now().Add(-2 * time.Hour),
+		Location:    "Memphis, TN",
+		Status:      "in_transit",
+		Description: "Package in transit",
+	}
+	
+	err := db.TrackingEvents.CreateEvent(&event1)
+	if err != nil {
+		t.Fatalf("Failed to create tracking event: %v", err)
+	}
+	
+	// Verify event was created with ID
+	if event1.ID == 0 {
+		t.Error("Expected event ID to be set after creation")
+	}
+	
+	// Test case 2: Deduplication - try to create the same event again
+	duplicateEvent := TrackingEvent{
+		ShipmentID:  shipment.ID,
+		Timestamp:   event1.Timestamp, // Same timestamp
+		Location:    "Different Location", // Different location shouldn't matter
+		Status:      "different_status",   // Different status shouldn't matter
+		Description: event1.Description,   // Same description
+	}
+	
+	err = db.TrackingEvents.CreateEvent(&duplicateEvent)
+	if err != nil {
+		t.Fatalf("Deduplication failed, got error: %v", err)
+	}
+	
+	// Verify only one event exists (deduplication worked)
+	events, err := db.TrackingEvents.GetByShipmentID(shipment.ID)
+	if err != nil {
+		t.Fatalf("Failed to get events: %v", err)
+	}
+	
+	if len(events) != 1 {
+		t.Errorf("Expected 1 event after deduplication, got %d", len(events))
+	}
+	
+	// Test case 3: Create event with different timestamp or description
+	event2 := TrackingEvent{
+		ShipmentID:  shipment.ID,
+		Timestamp:   time.Now().Add(-1 * time.Hour), // Different timestamp
+		Location:    "Atlanta, GA",
+		Status:      "out_for_delivery",
+		Description: "Out for delivery",
+	}
+	
+	err = db.TrackingEvents.CreateEvent(&event2)
+	if err != nil {
+		t.Fatalf("Failed to create second tracking event: %v", err)
+	}
+	
+	// Now we should have 2 events
+	events, err = db.TrackingEvents.GetByShipmentID(shipment.ID)
+	if err != nil {
+		t.Fatalf("Failed to get events: %v", err)
+	}
+	
+	if len(events) != 2 {
+		t.Errorf("Expected 2 events after adding different event, got %d", len(events))
+	}
+	
+	// Test case 4: Create event for non-existent shipment
+	invalidEvent := TrackingEvent{
+		ShipmentID:  999999, // Non-existent shipment
+		Timestamp:   time.Now(),
+		Location:    "Nowhere",
+		Status:      "unknown",
+		Description: "Invalid shipment",
+	}
+	
+	err = db.TrackingEvents.CreateEvent(&invalidEvent)
+	if err == nil {
+		t.Error("Expected error when creating event for non-existent shipment")
+	}
+}
+
+func TestTrackingEventStore_CreateEvent_Concurrent(t *testing.T) {
+	db := setupTestDB(t)
+	
+	// Create a shipment
+	shipment := Shipment{
+		TrackingNumber: "123456789012",
+		Carrier:        "fedex",
+		Description:    "Test Package",
+		Status:         "pending",
+		IsDelivered:    false,
+	}
+	if err := db.Shipments.Create(&shipment); err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+	
+	// Test concurrent creation of the same event
+	timestamp := time.Now()
+	description := "Concurrent test event"
+	
+	// Use a wait group to ensure all goroutines start at the same time
+	var wg sync.WaitGroup
+	var startSignal sync.WaitGroup
+	startSignal.Add(1)
+	
+	concurrency := 10
+	errors := make([]error, concurrency)
+	
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			
+			// Wait for start signal
+			startSignal.Wait()
+			
+			event := TrackingEvent{
+				ShipmentID:  shipment.ID,
+				Timestamp:   timestamp,
+				Location:    "Test Location",
+				Status:      "test_status",
+				Description: description,
+			}
+			
+			errors[index] = db.TrackingEvents.CreateEvent(&event)
+		}(i)
+	}
+	
+	// Start all goroutines
+	startSignal.Done()
+	
+	// Wait for all to complete
+	wg.Wait()
+	
+	// All operations should succeed (no errors)
+	for i, err := range errors {
+		if err != nil {
+			t.Errorf("Goroutine %d got error: %v", i, err)
+		}
+	}
+	
+	// But only one event should exist
+	events, err := db.TrackingEvents.GetByShipmentID(shipment.ID)
+	if err != nil {
+		t.Fatalf("Failed to get events: %v", err)
+	}
+	
+	if len(events) != 1 {
+		t.Errorf("Expected 1 event after concurrent creation, got %d", len(events))
 	}
 }
