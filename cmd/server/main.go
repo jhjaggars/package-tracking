@@ -15,6 +15,8 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
 	"log"
 	"net/http"
 	"time"
@@ -27,6 +29,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+// Production builds will embed static files here
+// For development, we'll use filesystem fallback
+var embeddedFiles embed.FS
 
 func main() {
 	// Load configuration
@@ -54,11 +60,15 @@ func main() {
 	r.Use(server.ContentTypeMiddleware)
 	r.Use(server.SecurityMiddleware)
 
+	// Create embedded file system for static assets
+	// For development, use filesystem fallback
+	var staticFS fs.FS = nil
+
 	// Create handlers
 	shipmentHandler := handlers.NewShipmentHandler(db)
 	healthHandler := handlers.NewHealthHandler(db)
 	carrierHandler := handlers.NewCarrierHandler(db)
-	staticHandler := handlers.NewStaticHandler()
+	staticHandler := handlers.NewStaticHandler(staticFS)
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {

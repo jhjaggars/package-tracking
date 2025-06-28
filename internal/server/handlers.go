@@ -21,7 +21,7 @@ func NewHandlerWrappers(db *database.DB) *HandlerWrappers {
 		shipmentHandler: handlers.NewShipmentHandler(db),
 		healthHandler:   handlers.NewHealthHandler(db),
 		carrierHandler:  handlers.NewCarrierHandler(db),
-		staticHandler:   handlers.NewStaticHandler(),
+		staticHandler:   handlers.NewStaticHandler(nil), // Use filesystem fallback
 	}
 }
 

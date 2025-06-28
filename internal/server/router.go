@@ -55,7 +55,7 @@ func (r *Router) DELETE(pattern string, handler HandlerFunc) {
 
 // addRoute adds a route to the router
 func (r *Router) addRoute(method, pattern string, handler HandlerFunc) {
-	fmt.Printf("Registering route: %s %s\n", method, pattern)
+	// Route registration
 	route := Route{
 		Method:  method,
 		Pattern: pattern,
@@ -64,41 +64,41 @@ func (r *Router) addRoute(method, pattern string, handler HandlerFunc) {
 
 	// Convert pattern to regex and extract parameter names
 	route.regex, route.params = patternToRegex(pattern)
-	fmt.Printf("  Compiled to regex: %s\n", route.regex.String())
+	// Regex compilation complete
 	r.routes = append(r.routes, route)
 }
 
 // ServeHTTP implements http.Handler interface
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	fmt.Printf("Router.ServeHTTP called for: %s %s\n", req.Method, req.URL.Path)
+	// Handle incoming request
 	// Find matching route
 	route, params := r.findRoute(req.Method, req.URL.Path)
 	if route == nil {
-		fmt.Printf("No route found, returning 404\n")
+		// No matching route found
 		http.NotFound(w, req)
 		return
 	}
 
 	// Call the handler with extracted parameters
-	fmt.Printf("Calling handler for route: %s\n", route.Pattern)
+	// Call matched route handler
 	route.Handler(w, req, params)
 }
 
 // findRoute finds a matching route and extracts parameters
 func (r *Router) findRoute(method, path string) (*Route, map[string]string) {
-	fmt.Printf("Looking for route: %s %s\n", method, path)
-	for i, route := range r.routes {
-		fmt.Printf("  Checking route %d: %s %s (regex: %s)\n", i, route.Method, route.Pattern, route.regex.String())
+	// Search for matching route
+	for _, route := range r.routes {
+		// Check route match
 		if route.Method != method {
 			continue
 		}
 
 		matches := route.regex.FindStringSubmatch(path)
 		if matches == nil {
-			fmt.Printf("    No match\n")
+			// Route does not match
 			continue
 		}
-		fmt.Printf("    MATCHED!\n")
+		// Route matched successfully
 
 		// Extract parameters
 		params := make(map[string]string)
@@ -125,15 +125,15 @@ func patternToRegex(pattern string) (*regexp.Regexp, []string) {
 	regexPattern := paramRegex.ReplaceAllStringFunc(pattern, func(match string) string {
 		// Extract parameter name (remove { and })
 		paramName := strings.Trim(match, "{}")
-		fmt.Printf("Processing param: '%s'\n", paramName)
+		// Process parameter
 		params = append(params, paramName)
 		
 		// Special handling for catch-all patterns like {path:.*}
 		if strings.Contains(paramName, ":.*") {
-			fmt.Printf("Using catch-all pattern for: %s\n", paramName)
+			// Use catch-all pattern
 			return `(.*)` // Match everything including slashes and empty string
 		}
-		fmt.Printf("Using normal pattern for: %s\n", paramName)
+		// Use normal parameter pattern
 		return `([^/]+)` // Match any characters except slash
 	})
 	

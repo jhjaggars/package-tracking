@@ -1,14 +1,12 @@
 package handlers
 
 import (
+	"io/fs"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
 )
-
-// Note: embed directive should be at package level and point to correct path
-// For now, we'll use the filesystem directly in development
 
 // StaticHandler handles serving static files and SPA routing
 type StaticHandler struct {
@@ -16,9 +14,15 @@ type StaticHandler struct {
 }
 
 // NewStaticHandler creates a new static file handler
-func NewStaticHandler() *StaticHandler {
-	// For development, serve from filesystem
-	// In production, this would use embedded files
+func NewStaticHandler(embeddedFS fs.FS) *StaticHandler {
+	if embeddedFS != nil {
+		// Use embedded files (production)
+		return &StaticHandler{
+			fileSystem: http.FS(embeddedFS),
+		}
+	}
+	
+	// Fall back to filesystem for development
 	return &StaticHandler{
 		fileSystem: http.Dir("./web/dist"),
 	}
@@ -44,8 +48,10 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			defer indexFile.Close()
 			
-			// Set content type for HTML
+			// Set security headers and content type for HTML
+			h.setSecurityHeaders(w)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			http.ServeContent(w, r, "index.html", getModTime(), indexFile)
 			return
 		}
@@ -63,25 +69,63 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Set appropriate content type based on file extension
+	// Set security headers for all static content
+	h.setSecurityHeaders(w)
+	
+	// Set appropriate content type and caching based on file extension
 	ext := filepath.Ext(path)
 	switch ext {
 	case ".html":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Don't cache HTML files to ensure fresh SPA routing
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	case ".css":
 		w.Header().Set("Content-Type", "text/css")
+		w.Header().Set("Cache-Control", "public, max-age=31536000") // 1 year
 	case ".js":
 		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=31536000") // 1 year
 	case ".json":
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=3600") // 1 hour
 	case ".ico":
 		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "public, max-age=86400") // 1 day
 	case ".svg":
 		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=86400") // 1 day
 	}
 	
 	// Serve the file
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+}
+
+// setSecurityHeaders adds comprehensive security headers to responses
+func (h *StaticHandler) setSecurityHeaders(w http.ResponseWriter) {
+	// Content Security Policy - restrict resource loading
+	csp := "default-src 'self'; " +
+		"script-src 'self' 'unsafe-inline'; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: https:; " +
+		"font-src 'self' data:; " +
+		"connect-src 'self'; " +
+		"frame-ancestors 'none';"
+	w.Header().Set("Content-Security-Policy", csp)
+	
+	// Prevent MIME sniffing
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	
+	// Prevent clickjacking
+	w.Header().Set("X-Frame-Options", "DENY")
+	
+	// XSS protection
+	w.Header().Set("X-XSS-Protection", "1; mode=block")
+	
+	// Referrer policy
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	
+	// Strict Transport Security (HSTS) - only if HTTPS
+	// w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 }
 
 // getModTime returns a default modification time for embedded files

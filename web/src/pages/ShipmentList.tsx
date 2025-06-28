@@ -3,35 +3,9 @@ import { Link } from 'react-router-dom';
 import { Package, Search, Plus, RefreshCw, Eye } from 'lucide-react';
 import { useShipments } from '../hooks/api';
 import { Button } from '../components/ui/button';
-import type { Shipment } from '../types/api';
+import { ShipmentStatusBadge, formatDateOnly } from '../components/shared';
 import { sanitizePlainText } from '../lib/sanitize';
 
-function getStatusBadge(shipment: Shipment) {
-  if (shipment.is_delivered) {
-    return (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-        Delivered
-      </span>
-    );
-  }
-  
-  const statusColors = {
-    pending: 'bg-gray-100 text-gray-800',
-    pre_ship: 'bg-blue-100 text-blue-800',
-    in_transit: 'bg-blue-100 text-blue-800',
-    out_for_delivery: 'bg-yellow-100 text-yellow-800',
-    exception: 'bg-red-100 text-red-800',
-    returned: 'bg-red-100 text-red-800',
-  };
-  
-  const colorClass = statusColors[shipment.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800';
-  
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colorClass}`}>
-      {shipment.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-    </span>
-  );
-}
 
 export function ShipmentList() {
   const { data: shipments, isLoading, refetch } = useShipments();
@@ -202,10 +176,10 @@ export function ShipmentList() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(shipment)}
+                      <ShipmentStatusBadge shipment={shipment} />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
-                      {new Date(shipment.created_at).toLocaleDateString()}
+                      {formatDateOnly(shipment.created_at)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <Button variant="ghost" size="sm" asChild>

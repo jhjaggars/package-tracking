@@ -2,39 +2,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowLeft, Edit, Trash2, Clock } from 'lucide-react';
 import { useShipment, useShipmentEvents, useRefreshShipment, useDeleteShipment } from '../hooks/api';
 import { Button } from '../components/ui/button';
+import { StatusBadge, DateFormatter } from '../components/shared';
 import type { TrackingEvent } from '../types/api';
 import { sanitizePlainText } from '../lib/sanitize';
 
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleString();
-}
-
-function getStatusBadge(status: string, isDelivered: boolean) {
-  if (isDelivered) {
-    return (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-        Delivered
-      </span>
-    );
-  }
-  
-  const statusColors = {
-    pending: 'bg-gray-100 text-gray-800',
-    pre_ship: 'bg-blue-100 text-blue-800',
-    in_transit: 'bg-blue-100 text-blue-800',
-    out_for_delivery: 'bg-yellow-100 text-yellow-800',
-    exception: 'bg-red-100 text-red-800',
-    returned: 'bg-red-100 text-red-800',
-  };
-  
-  const colorClass = statusColors[status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800';
-  
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colorClass}`}>
-      {status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-    </span>
-  );
-}
 
 function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
   if (events.length === 0) {
@@ -79,9 +50,7 @@ function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
                     )}
                   </div>
                   <div className="text-right text-sm whitespace-nowrap text-muted-foreground">
-                    <time dateTime={event.timestamp}>
-                      {formatDate(event.timestamp)}
-                    </time>
+                    <DateFormatter date={event.timestamp} />
                   </div>
                 </div>
               </div>
@@ -201,21 +170,21 @@ export function ShipmentDetail() {
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Status</dt>
-              <dd className="mt-1">{getStatusBadge(shipment.status, shipment.is_delivered)}</dd>
+              <dd className="mt-1"><StatusBadge status={shipment.status} isDelivered={shipment.is_delivered} /></dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-              <dd className="mt-1 text-sm text-foreground">{formatDate(shipment.created_at)}</dd>
+              <dd className="mt-1 text-sm text-foreground"><DateFormatter date={shipment.created_at} /></dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Last Updated</dt>
-              <dd className="mt-1 text-sm text-foreground">{formatDate(shipment.updated_at)}</dd>
+              <dd className="mt-1 text-sm text-foreground"><DateFormatter date={shipment.updated_at} /></dd>
             </div>
             {shipment.expected_delivery && (
               <div>
                 <dt className="text-sm font-medium text-muted-foreground">Expected Delivery</dt>
                 <dd className="mt-1 text-sm text-foreground">
-                  {formatDate(shipment.expected_delivery)}
+                  <DateFormatter date={shipment.expected_delivery} />
                 </dd>
               </div>
             )}
@@ -223,7 +192,7 @@ export function ShipmentDetail() {
               <div>
                 <dt className="text-sm font-medium text-muted-foreground">Last Manual Refresh</dt>
                 <dd className="mt-1 text-sm text-foreground">
-                  {formatDate(shipment.last_manual_refresh)}
+                  <DateFormatter date={shipment.last_manual_refresh} />
                   <span className="ml-2 text-xs text-muted-foreground">
                     ({shipment.manual_refresh_count} times)
                   </span>
