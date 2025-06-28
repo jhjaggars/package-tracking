@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { AxiosResponse, AxiosError } from 'axios';
+import { logger } from '../lib/logger';
 import type {
   Shipment,
   TrackingEvent,
@@ -24,13 +25,11 @@ const api = axios.create({
 // Request interceptor for logging (development only)
 api.interceptors.request.use(
   (config) => {
-    if (import.meta.env.DEV) {
-      console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
-    }
+    logger.debug(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
   (error) => {
-    console.error('API Request Error:', error);
+    logger.error('API Request Error:', error);
     return Promise.reject(error);
   }
 );
@@ -38,13 +37,11 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response: AxiosResponse) => {
-    if (import.meta.env.DEV) {
-      console.log(`API Response: ${response.status} ${response.config.url}`);
-    }
+    logger.debug(`API Response: ${response.status} ${response.config.url}`);
     return response;
   },
   (error: AxiosError<APIError>) => {
-    console.error('API Response Error:', error);
+    logger.error('API Response Error:', error);
     
     // Transform axios error to our APIError format
     if (error.response?.data) {
@@ -119,18 +116,10 @@ export const apiService = {
     return response.data;
   },
 
-  // Dashboard stats (future endpoint)
+  // Dashboard stats
   async getDashboardStats(): Promise<DashboardStats> {
-    // Mock implementation for now
-    const shipments = await this.getShipments();
-    const stats: DashboardStats = {
-      total_shipments: shipments.length,
-      active_shipments: shipments.filter(s => !s.is_delivered).length,
-      in_transit: shipments.filter(s => s.status === 'in_transit').length,
-      delivered: shipments.filter(s => s.is_delivered).length,
-      requiring_attention: shipments.filter(s => s.status === 'exception').length,
-    };
-    return stats;
+    const response = await api.get<DashboardStats>('/dashboard/stats');
+    return response.data;
   },
 };
 

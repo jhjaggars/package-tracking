@@ -1,11 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Suspense, lazy } from 'react';
 import { Layout } from './components/layout/Layout';
-import { Dashboard } from './pages/Dashboard';
-import { ShipmentList } from './pages/ShipmentList';
-import { ShipmentDetail } from './pages/ShipmentDetail';
-import { AddShipment } from './pages/AddShipment';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LoadingSpinner } from './components/ui/LoadingSpinner';
+
+// Lazy load page components for code splitting
+const Dashboard = lazy(() => import('./pages/Dashboard').then(module => ({ default: module.Dashboard })));
+const ShipmentList = lazy(() => import('./pages/ShipmentList').then(module => ({ default: module.ShipmentList })));
+const ShipmentDetail = lazy(() => import('./pages/ShipmentDetail').then(module => ({ default: module.ShipmentDetail })));
+const AddShipment = lazy(() => import('./pages/AddShipment').then(module => ({ default: module.AddShipment })));
 
 // Create a client
 const queryClient = new QueryClient({
@@ -23,29 +27,31 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Layout>
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={
-              <ErrorBoundary>
-                <Dashboard />
-              </ErrorBoundary>
-            } />
-            <Route path="/shipments" element={
-              <ErrorBoundary>
-                <ShipmentList />
-              </ErrorBoundary>
-            } />
-            <Route path="/shipments/new" element={
-              <ErrorBoundary>
-                <AddShipment />
-              </ErrorBoundary>
-            } />
-            <Route path="/shipments/:id" element={
-              <ErrorBoundary>
-                <ShipmentDetail />
-              </ErrorBoundary>
-            } />
-          </Routes>
+          <Suspense fallback={<LoadingSpinner />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={
+                <ErrorBoundary>
+                  <Dashboard />
+                </ErrorBoundary>
+              } />
+              <Route path="/shipments" element={
+                <ErrorBoundary>
+                  <ShipmentList />
+                </ErrorBoundary>
+              } />
+              <Route path="/shipments/new" element={
+                <ErrorBoundary>
+                  <AddShipment />
+                </ErrorBoundary>
+              } />
+              <Route path="/shipments/:id" element={
+                <ErrorBoundary>
+                  <ShipmentDetail />
+                </ErrorBoundary>
+              } />
+            </Routes>
+          </Suspense>
         </Layout>
       </BrowserRouter>
     </QueryClientProvider>

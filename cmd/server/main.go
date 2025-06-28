@@ -68,6 +68,7 @@ func main() {
 	shipmentHandler := handlers.NewShipmentHandler(db)
 	healthHandler := handlers.NewHealthHandler(db)
 	carrierHandler := handlers.NewCarrierHandler(db)
+	dashboardHandler := handlers.NewDashboardHandler(db)
 	staticHandler := handlers.NewStaticHandler(staticFS)
 
 	// API routes
@@ -81,6 +82,7 @@ func main() {
 		r.Post("/shipments/{id}/refresh", shipmentHandler.RefreshShipment)
 		r.Get("/health", healthHandler.HealthCheck)
 		r.Get("/carriers", carrierHandler.GetCarriers)
+		r.Get("/dashboard/stats", dashboardHandler.GetStats)
 	})
 
 	// Static file routes (catch-all for SPA)
