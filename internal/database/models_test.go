@@ -162,16 +162,17 @@ func TestTrackingEventStore_CreateEvent(t *testing.T) {
 		t.Error("Expected event ID to be set after creation")
 	}
 	
-	// Test case 2: Deduplication - try to create the same event again
-	duplicateEvent := TrackingEvent{
-		ShipmentID:  shipment.ID,
-		Timestamp:   event1.Timestamp, // Same timestamp
-		Location:    "Different Location", // Different location shouldn't matter
-		Status:      "different_status",   // Different status shouldn't matter
-		Description: event1.Description,   // Same description
+	// Test case 2: Deduplication - exact duplicate should be prevented
+	// Deduplication is based on: shipment_id + timestamp + description ONLY
+	exactDuplicate := TrackingEvent{
+		ShipmentID:  shipment.ID,         // Same shipment
+		Timestamp:   event1.Timestamp,   // Same timestamp
+		Location:    "Different Location", // Different location (doesn't affect deduplication)
+		Status:      "different_status",   // Different status (doesn't affect deduplication)  
+		Description: event1.Description, // Same description
 	}
 	
-	err = db.TrackingEvents.CreateEvent(&duplicateEvent)
+	err = db.TrackingEvents.CreateEvent(&exactDuplicate)
 	if err != nil {
 		t.Fatalf("Deduplication failed, got error: %v", err)
 	}
@@ -186,7 +187,55 @@ func TestTrackingEventStore_CreateEvent(t *testing.T) {
 		t.Errorf("Expected 1 event after deduplication, got %d", len(events))
 	}
 	
-	// Test case 3: Create event with different timestamp or description
+	// Test case 2b: Different location/status with same timestamp/description should be deduplicated
+	anotherDuplicate := TrackingEvent{
+		ShipmentID:  shipment.ID,
+		Timestamp:   event1.Timestamp,   // Same timestamp
+		Location:    "Yet Another Location", // Different location again
+		Status:      "another_status",   // Different status again
+		Description: event1.Description, // Same description
+	}
+	
+	err = db.TrackingEvents.CreateEvent(&anotherDuplicate)
+	if err != nil {
+		t.Fatalf("Deduplication failed for second duplicate, got error: %v", err)
+	}
+	
+	// Still should be only one event
+	events, err = db.TrackingEvents.GetByShipmentID(shipment.ID)
+	if err != nil {
+		t.Fatalf("Failed to get events after second duplicate: %v", err)
+	}
+	
+	if len(events) != 1 {
+		t.Errorf("Expected 1 event after second deduplication, got %d", len(events))
+	}
+	
+	// Test case 2c: Same timestamp but different description should NOT be deduplicated
+	differentDescription := TrackingEvent{
+		ShipmentID:  shipment.ID,
+		Timestamp:   event1.Timestamp,      // Same timestamp
+		Location:    "Same location as first", // Location doesn't matter
+		Status:      "same_status",          // Status doesn't matter
+		Description: "Different description", // Different description - should create new event
+	}
+	
+	err = db.TrackingEvents.CreateEvent(&differentDescription)
+	if err != nil {
+		t.Fatalf("Failed to create event with different description: %v", err)
+	}
+	
+	// Now should have 2 events (original + different description)
+	events, err = db.TrackingEvents.GetByShipmentID(shipment.ID)
+	if err != nil {
+		t.Fatalf("Failed to get events after different description: %v", err)
+	}
+	
+	if len(events) != 2 {
+		t.Errorf("Expected 2 events after different description, got %d", len(events))
+	}
+	
+	// Test case 3: Create event with different timestamp (should create new event)
 	event2 := TrackingEvent{
 		ShipmentID:  shipment.ID,
 		Timestamp:   time.Now().Add(-1 * time.Hour), // Different timestamp
@@ -200,14 +249,14 @@ func TestTrackingEventStore_CreateEvent(t *testing.T) {
 		t.Fatalf("Failed to create second tracking event: %v", err)
 	}
 	
-	// Now we should have 2 events
+	// Now we should have 3 events (original + different description + different timestamp)
 	events, err = db.TrackingEvents.GetByShipmentID(shipment.ID)
 	if err != nil {
 		t.Fatalf("Failed to get events: %v", err)
 	}
 	
-	if len(events) != 2 {
-		t.Errorf("Expected 2 events after adding different event, got %d", len(events))
+	if len(events) != 3 {
+		t.Errorf("Expected 3 events after adding different timestamp, got %d", len(events))
 	}
 	
 	// Test case 4: Create event for non-existent shipment

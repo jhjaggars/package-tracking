@@ -58,8 +58,15 @@ func setupTestDB(t *testing.T) *database.DB {
 
 	CREATE INDEX idx_shipments_status ON shipments(status);
 	CREATE INDEX idx_shipments_carrier ON shipments(carrier);
+	CREATE INDEX idx_shipments_carrier_delivered ON shipments(carrier, is_delivered);
 	CREATE INDEX idx_tracking_events_shipment ON tracking_events(shipment_id);
+	CREATE INDEX idx_tracking_events_dedup ON tracking_events(shipment_id, timestamp, description);
 	`
+
+	// Enable foreign key constraints
+	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("Failed to enable foreign keys: %v", err)
+	}
 
 	if _, err := sqlDB.Exec(schema); err != nil {
 		t.Fatalf("Failed to create test schema: %v", err)

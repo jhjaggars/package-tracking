@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"package-tracking/internal/carriers"
 	"package-tracking/internal/database"
@@ -233,5 +235,118 @@ func TestFedExAutomaticTrackingUpdate_InvalidTrackingNumbers(t *testing.T) {
 	
 	if updatedShipment.Status != "pending" {
 		t.Errorf("Expected status to remain 'pending' for invalid tracking number, got '%s'", updatedShipment.Status)
+	}
+}
+
+func TestFedExAutomaticTrackingUpdate_DatabaseErrors(t *testing.T) {
+	// Setup test database
+	db := setupTestDB(t)
+	
+	// Close the database to simulate connection errors
+	db.Close()
+	
+	factory := carriers.NewClientFactory()
+	
+	updater := &FedExTrackingUpdater{
+		DB:      db,
+		Factory: factory,
+	}
+	
+	// Should handle database errors gracefully
+	err := updater.UpdateFedExShipments(context.Background())
+	if err == nil {
+		t.Error("Expected error when database is closed")
+	}
+	
+	// Error should be related to database connectivity
+	if !strings.Contains(err.Error(), "database is closed") && 
+	   !strings.Contains(err.Error(), "sql:") {
+		t.Errorf("Expected database-related error, got: %v", err)
+	}
+}
+
+func TestFedExAutomaticTrackingUpdate_ContextCancellation(t *testing.T) {
+	// Setup test database
+	db := setupTestDB(t)
+	
+	// Create a shipment
+	shipment := database.Shipment{
+		TrackingNumber: "123456789012",
+		Carrier:        "fedex",
+		Description:    "Test Package",
+		Status:         "pending",
+		IsDelivered:    false,
+	}
+	
+	if err := db.Shipments.Create(&shipment); err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+	
+	factory := carriers.NewClientFactory()
+	
+	updater := &FedExTrackingUpdater{
+		DB:      db,
+		Factory: factory,
+	}
+	
+	// Create a context that's already cancelled
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+	
+	// Should handle context cancellation gracefully
+	err := updater.UpdateFedExShipments(ctx)
+	if err == nil {
+		t.Error("Expected error when context is cancelled")
+	}
+	
+	// Error should be context-related
+	if !strings.Contains(err.Error(), "context canceled") &&
+	   !strings.Contains(err.Error(), "deadline exceeded") {
+		t.Errorf("Expected context cancellation error, got: %v", err)
+	}
+}
+
+func TestFedExAutomaticTrackingUpdate_NetworkTimeouts(t *testing.T) {
+	// Setup test database
+	db := setupTestDB(t)
+	
+	// Create a shipment
+	shipment := database.Shipment{
+		TrackingNumber: "123456789012",
+		Carrier:        "fedex", 
+		Description:    "Test Package",
+		Status:         "pending",
+		IsDelivered:    false,
+	}
+	
+	if err := db.Shipments.Create(&shipment); err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+	
+	factory := carriers.NewClientFactory()
+	
+	updater := &FedExTrackingUpdater{
+		DB:      db,
+		Factory: factory,
+	}
+	
+	// Create a context with very short timeout to simulate network timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+	
+	// Wait a moment to ensure timeout
+	time.Sleep(1 * time.Millisecond)
+	
+	// Should handle timeout gracefully
+	err := updater.UpdateFedExShipments(ctx)
+	if err == nil {
+		t.Error("Expected timeout error")
+	}
+	
+	// Error should be timeout-related
+	if !strings.Contains(err.Error(), "timeout") &&
+	   !strings.Contains(err.Error(), "deadline exceeded") &&
+	   !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Errorf("Expected timeout error, got: %v", err)
 	}
 }
