@@ -27,6 +27,11 @@ func Open(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Enable foreign key constraints in SQLite
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
 	// Create the wrapper
 	database := &DB{
 		DB:             db,
@@ -79,7 +84,9 @@ func (db *DB) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status);
 	CREATE INDEX IF NOT EXISTS idx_shipments_carrier ON shipments(carrier);
+	CREATE INDEX IF NOT EXISTS idx_shipments_carrier_delivered ON shipments(carrier, is_delivered);
 	CREATE INDEX IF NOT EXISTS idx_tracking_events_shipment ON tracking_events(shipment_id);
+	CREATE INDEX IF NOT EXISTS idx_tracking_events_dedup ON tracking_events(shipment_id, timestamp, description);
 	`
 
 	_, err := db.Exec(schema)
