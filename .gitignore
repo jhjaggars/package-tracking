@@ -1,0 +1,28 @@
+# Database files
+database.db
+*.db
+
+# Binary files
+bin/
+*.exe
+
+# Go build artifacts
+*.test
+*.out
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log

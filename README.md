@@ -116,7 +116,9 @@ curl -X DELETE http://localhost:8080/api/shipments/1
 ### Project Structure
 ```
 package-tracking/
-├── cmd/server/main.go           # Application entry point
+├── cmd/
+│   ├── server/main.go           # API server entry point
+│   └── cli/main.go              # CLI client (planned)
 ├── internal/
 │   ├── config/                  # Configuration management
 │   ├── database/                # Database models and operations
@@ -326,14 +328,22 @@ kill -9 <pid>
 - Retry logic and failure handling for API outages
 - Smart fallback from API to web scraping on failures
 
-**Phase 4: Web Interface** 
+**Phase 4: CLI Client Interface**
+- Command-line client for API interaction (`cmd/cli/main.go`)
+- CRUD operations for shipments and tracking events
+- Support for table and JSON output formats
+- Configuration file support (`~/.package-tracker.yaml`)
+- User-friendly commands with comprehensive help
+- Integration with existing REST API
+
+**Phase 5: Web Interface** 
 - HTML templates with Go's `html/template`
 - Responsive design with vanilla CSS/JS
 - Dashboard and shipment management forms
 - Real-time updates and notifications
 - Configuration UI for API credentials and scraping settings
 
-**Phase 5: AI Email Processing (Part 2)**
+**Phase 6: AI Email Processing (Part 2)**
 - Email monitoring (Gmail/Outlook/IMAP)
 - AI-powered tracking number extraction
 - User approval workflow for auto-detected shipments
@@ -384,6 +394,19 @@ go build -o bin/server cmd/server/main.go
 - **Comprehensive Error Handling**: CarrierError type with retry and rate limit flags
 - **Web Scraping Fallback**: Browser-like headers and respectful rate limiting for carrier websites
 - **Test-Driven Development**: All carrier clients built with failing tests first
+
+## 📜 License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+The Apache 2.0 license allows you to:
+- ✅ Use the software for any purpose
+- ✅ Distribute it
+- ✅ Modify it  
+- ✅ Distribute modified versions
+- ✅ Use it for commercial purposes
+
+This makes it ideal for both personal and commercial use.
 
 ---
 
