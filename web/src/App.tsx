@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { ShipmentList } from './pages/ShipmentList';
 import { ShipmentDetail } from './pages/ShipmentDetail';
 import { AddShipment } from './pages/AddShipment';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -24,10 +25,26 @@ function App() {
         <Layout>
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/shipments" element={<ShipmentList />} />
-            <Route path="/shipments/new" element={<AddShipment />} />
-            <Route path="/shipments/:id" element={<ShipmentDetail />} />
+            <Route path="/dashboard" element={
+              <ErrorBoundary>
+                <Dashboard />
+              </ErrorBoundary>
+            } />
+            <Route path="/shipments" element={
+              <ErrorBoundary>
+                <ShipmentList />
+              </ErrorBoundary>
+            } />
+            <Route path="/shipments/new" element={
+              <ErrorBoundary>
+                <AddShipment />
+              </ErrorBoundary>
+            } />
+            <Route path="/shipments/:id" element={
+              <ErrorBoundary>
+                <ShipmentDetail />
+              </ErrorBoundary>
+            } />
           </Routes>
         </Layout>
       </BrowserRouter>

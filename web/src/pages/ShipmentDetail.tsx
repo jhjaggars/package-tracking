@@ -3,6 +3,7 @@ import { RefreshCw, ArrowLeft, Edit, Trash2, Clock } from 'lucide-react';
 import { useShipment, useShipmentEvents, useRefreshShipment, useDeleteShipment } from '../hooks/api';
 import { Button } from '../components/ui/button';
 import type { TrackingEvent } from '../types/api';
+import { sanitizePlainText } from '../lib/sanitize';
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleString();
@@ -69,11 +70,11 @@ function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
                 <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      {event.description}
+                      {sanitizePlainText(event.description)}
                     </p>
                     {event.location && (
                       <p className="text-sm text-muted-foreground">
-                        {event.location}
+                        {sanitizePlainText(event.location)}
                       </p>
                     )}
                   </div>
@@ -152,7 +153,7 @@ export function ShipmentDetail() {
             </Button>
             <div>
               <h2 className="text-2xl font-bold leading-7 text-foreground sm:text-3xl">
-                {shipment.description}
+                {sanitizePlainText(shipment.description)}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {shipment.tracking_number} • {shipment.carrier.toUpperCase()}

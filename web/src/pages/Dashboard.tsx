@@ -2,6 +2,7 @@ import { Package, Truck, CheckCircle, AlertTriangle, Plus } from 'lucide-react';
 import { useDashboardStats, useShipments } from '../hooks/api';
 import { Button } from '../components/ui/button';
 import { Link } from 'react-router-dom';
+import { sanitizePlainText } from '../lib/sanitize';
 
 function StatCard({ 
   title, 
@@ -156,7 +157,7 @@ export function Dashboard() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">
-                          {shipment.description}
+                          {sanitizePlainText(shipment.description)}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           {shipment.tracking_number} • {shipment.carrier.toUpperCase()}

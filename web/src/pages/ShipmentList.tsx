@@ -4,6 +4,7 @@ import { Package, Search, Plus, RefreshCw, Eye } from 'lucide-react';
 import { useShipments } from '../hooks/api';
 import { Button } from '../components/ui/button';
 import type { Shipment } from '../types/api';
+import { sanitizePlainText } from '../lib/sanitize';
 
 function getStatusBadge(shipment: Shipment) {
   if (shipment.is_delivered) {
@@ -187,7 +188,7 @@ export function ShipmentList() {
                   <tr key={shipment.id} className="hover:bg-muted/30">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-foreground">
-                        {shipment.description}
+                        {sanitizePlainText(shipment.description)}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
