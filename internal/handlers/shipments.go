@@ -273,23 +273,24 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Force scraping client (bypass API)
+	// Force fresh data collection (bypass API, prefer headless/scraping)
 	config := &carriers.CarrierConfig{
-		PreferredType: carriers.ClientTypeScraping,
+		PreferredType: carriers.ClientTypeHeadless, // Try headless first
+		UseHeadless:   true,
 		UserAgent:     "Mozilla/5.0 (compatible; PackageTracker/1.0)",
 	}
 	h.factory.SetCarrierConfig(shipment.Carrier, config)
 
-	// Create scraping client
+	// Create client for fresh data collection
 	client, clientType, err := h.factory.CreateClient(shipment.Carrier)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create client for carrier %s: %v", shipment.Carrier, err), http.StatusServiceUnavailable)
 		return
 	}
 
-	// Ensure we're using scraping
-	if clientType != carriers.ClientTypeScraping {
-		http.Error(w, "Scraping client not available for this carrier", http.StatusServiceUnavailable)
+	// Ensure we're using fresh data collection (headless or scraping, not API)
+	if clientType == carriers.ClientTypeAPI {
+		http.Error(w, "Fresh data collection client not available for this carrier", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -300,7 +301,7 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Track the shipment using scraping
+	// Track the shipment using fresh data collection
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -318,7 +319,7 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 				return
 			}
 		}
-		http.Error(w, fmt.Sprintf("Failed to scrape tracking data: %v", err), http.StatusBadGateway)
+		http.Error(w, fmt.Sprintf("Failed to fetch tracking data: %v", err), http.StatusBadGateway)
 		return
 	}
 

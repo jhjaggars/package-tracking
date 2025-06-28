@@ -11,6 +11,7 @@ type ClientType string
 const (
 	ClientTypeAPI       ClientType = "api"
 	ClientTypeScraping  ClientType = "scraping"
+	ClientTypeHeadless  ClientType = "headless"
 )
 
 // CarrierConfig holds configuration for carrier clients
@@ -24,6 +25,9 @@ type CarrierConfig struct {
 	// Scraping configuration
 	UserAgent    string
 	UseSandbox   bool
+	
+	// Headless browser configuration
+	UseHeadless  bool
 	
 	// Preferred client type (can be overridden by availability)
 	PreferredType ClientType
@@ -63,6 +67,13 @@ func (f *ClientFactory) CreateClient(carrier string) (Client, ClientType, error)
 	if config.PreferredType == ClientTypeAPI || config.PreferredType == "" {
 		if apiClient, err := f.createAPIClient(carrier, config); err == nil {
 			return apiClient, ClientTypeAPI, nil
+		}
+	}
+	
+	// Try headless client if requested or needed for specific carriers
+	if config.PreferredType == ClientTypeHeadless || config.UseHeadless || f.requiresHeadless(carrier) {
+		if headlessClient, err := f.createHeadlessClient(carrier, config); err == nil {
+			return headlessClient, ClientTypeHeadless, nil
 		}
 	}
 	
@@ -125,6 +136,34 @@ func (f *ClientFactory) createScrapingClient(carrier string, config *CarrierConf
 		return NewDHLScrapingClient(userAgent), nil
 	default:
 		return nil, fmt.Errorf("unsupported carrier for scraping: %s", carrier)
+	}
+}
+
+// createHeadlessClient creates a headless browser client
+func (f *ClientFactory) createHeadlessClient(carrier string, config *CarrierConfig) (Client, error) {
+	// Validate Chrome availability before creating headless clients
+	if err := ValidateChromeAvailable(); err != nil {
+		return nil, fmt.Errorf("headless client unavailable: %w", err)
+	}
+	
+	switch carrier {
+	case "fedex":
+		return NewFedExHeadlessClient(), nil
+	// Other carriers can be added here as they get headless implementations
+	// case "ups":
+	//     return NewUPSHeadlessClient(), nil
+	default:
+		return nil, fmt.Errorf("headless client not available for carrier: %s", carrier)
+	}
+}
+
+// requiresHeadless returns true for carriers that require headless browsing
+func (f *ClientFactory) requiresHeadless(carrier string) bool {
+	switch carrier {
+	case "fedex":
+		return true // FedEx now requires headless due to SPA
+	default:
+		return false
 	}
 }
 
