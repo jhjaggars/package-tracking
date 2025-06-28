@@ -212,6 +212,52 @@ func (s *ShipmentStore) Delete(id int) error {
 	return nil
 }
 
+// DashboardStats represents aggregated statistics for the dashboard
+type DashboardStats struct {
+	TotalShipments      int `json:"total_shipments"`
+	ActiveShipments     int `json:"active_shipments"`
+	InTransit           int `json:"in_transit"`
+	Delivered           int `json:"delivered"`
+	RequiringAttention  int `json:"requiring_attention"`
+}
+
+// GetStats returns aggregated statistics for the dashboard
+func (s *ShipmentStore) GetStats() (*DashboardStats, error) {
+	stats := &DashboardStats{}
+	
+	// Get total shipments
+	err := s.db.QueryRow("SELECT COUNT(*) FROM shipments").Scan(&stats.TotalShipments)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get active shipments (not delivered)
+	err = s.db.QueryRow("SELECT COUNT(*) FROM shipments WHERE is_delivered = 0").Scan(&stats.ActiveShipments)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get in transit shipments
+	err = s.db.QueryRow("SELECT COUNT(*) FROM shipments WHERE status = 'in_transit'").Scan(&stats.InTransit)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get delivered shipments
+	err = s.db.QueryRow("SELECT COUNT(*) FROM shipments WHERE is_delivered = 1").Scan(&stats.Delivered)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get shipments requiring attention (exceptions)
+	err = s.db.QueryRow("SELECT COUNT(*) FROM shipments WHERE status = 'exception'").Scan(&stats.RequiringAttention)
+	if err != nil {
+		return nil, err
+	}
+	
+	return stats, nil
+}
+
 // UpdateRefreshTracking updates the last_manual_refresh timestamp and increments the count
 func (s *ShipmentStore) UpdateRefreshTracking(id int) error {
 	query := `UPDATE shipments SET 

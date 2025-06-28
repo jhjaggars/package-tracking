@@ -13,6 +13,8 @@ import (
 
 	"package-tracking/internal/carriers"
 	"package-tracking/internal/database"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // ShipmentHandler handles HTTP requests for shipments
@@ -83,7 +85,8 @@ func (h *ShipmentHandler) CreateShipment(w http.ResponseWriter, r *http.Request)
 
 // GetShipmentByID handles GET /api/shipments/{id}
 func (h *ShipmentHandler) GetShipmentByID(w http.ResponseWriter, r *http.Request) {
-	id, err := extractIDFromPath(r.URL.Path)
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid shipment ID", http.StatusBadRequest)
 		return
@@ -107,7 +110,8 @@ func (h *ShipmentHandler) GetShipmentByID(w http.ResponseWriter, r *http.Request
 
 // UpdateShipment handles PUT /api/shipments/{id}
 func (h *ShipmentHandler) UpdateShipment(w http.ResponseWriter, r *http.Request) {
-	id, err := extractIDFromPath(r.URL.Path)
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid shipment ID", http.StatusBadRequest)
 		return
@@ -143,7 +147,8 @@ func (h *ShipmentHandler) UpdateShipment(w http.ResponseWriter, r *http.Request)
 
 // DeleteShipment handles DELETE /api/shipments/{id}
 func (h *ShipmentHandler) DeleteShipment(w http.ResponseWriter, r *http.Request) {
-	id, err := extractIDFromPath(r.URL.Path)
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid shipment ID", http.StatusBadRequest)
 		return
@@ -163,7 +168,8 @@ func (h *ShipmentHandler) DeleteShipment(w http.ResponseWriter, r *http.Request)
 
 // GetShipmentEvents handles GET /api/shipments/{id}/events
 func (h *ShipmentHandler) GetShipmentEvents(w http.ResponseWriter, r *http.Request) {
-	id, err := extractIDFromPath(r.URL.Path)
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid shipment ID", http.StatusBadRequest)
 		return
@@ -221,21 +227,6 @@ func validateShipment(shipment *database.Shipment) error {
 	return nil
 }
 
-// extractIDFromPath extracts ID from URL path like /api/shipments/123
-func extractIDFromPath(path string) (int, error) {
-	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
-		return 0, fmt.Errorf("invalid path")
-	}
-	
-	idStr := parts[3]
-	// Handle paths like /api/shipments/123/events
-	if len(parts) > 4 && parts[4] == "events" {
-		idStr = parts[3]
-	}
-	
-	return strconv.Atoi(idStr)
-}
 
 // RefreshResponse represents the response from a manual refresh request
 type RefreshResponse struct {
@@ -248,7 +239,8 @@ type RefreshResponse struct {
 
 // RefreshShipment handles POST /api/shipments/{id}/refresh
 func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request) {
-	id, err := extractIDFromPath(r.URL.Path)
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid shipment ID", http.StatusBadRequest)
 		return

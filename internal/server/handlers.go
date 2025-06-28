@@ -12,6 +12,7 @@ type HandlerWrappers struct {
 	shipmentHandler *handlers.ShipmentHandler
 	healthHandler   *handlers.HealthHandler
 	carrierHandler  *handlers.CarrierHandler
+	staticHandler   *handlers.StaticHandler
 }
 
 // NewHandlerWrappers creates new handler wrappers
@@ -20,6 +21,7 @@ func NewHandlerWrappers(db *database.DB) *HandlerWrappers {
 		shipmentHandler: handlers.NewShipmentHandler(db),
 		healthHandler:   handlers.NewHealthHandler(db),
 		carrierHandler:  handlers.NewCarrierHandler(db),
+		staticHandler:   handlers.NewStaticHandler(nil), // Use filesystem fallback
 	}
 }
 
@@ -91,9 +93,14 @@ func (hw *HandlerWrappers) GetCarriers(w http.ResponseWriter, r *http.Request, p
 	hw.carrierHandler.GetCarriers(w, r)
 }
 
+// ServeStatic wraps the static file handler
+func (hw *HandlerWrappers) ServeStatic(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	hw.staticHandler.ServeHTTP(w, r)
+}
+
 // RegisterRoutes registers all routes with the router
 func (hw *HandlerWrappers) RegisterRoutes(router *Router) {
-	// Shipment routes
+	// API routes
 	router.GET("/api/shipments", hw.GetShipments)
 	router.POST("/api/shipments", hw.CreateShipment)
 	router.GET("/api/shipments/{id}", hw.GetShipmentByID)
@@ -101,8 +108,9 @@ func (hw *HandlerWrappers) RegisterRoutes(router *Router) {
 	router.DELETE("/api/shipments/{id}", hw.DeleteShipment)
 	router.GET("/api/shipments/{id}/events", hw.GetShipmentEvents)
 	router.POST("/api/shipments/{id}/refresh", hw.RefreshShipment)
-
-	// Other routes
 	router.GET("/api/health", hw.HealthCheck)
 	router.GET("/api/carriers", hw.GetCarriers)
+
+	// Static file routes (catch-all for SPA)
+	router.GET("/{path:.*}", hw.ServeStatic)
 }

@@ -15,14 +15,24 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
 	"log"
 	"net/http"
 	"time"
 
 	"package-tracking/internal/config"
 	"package-tracking/internal/database"
+	"package-tracking/internal/handlers"
 	"package-tracking/internal/server"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
+
+// Production builds will embed static files here
+// For development, we'll use filesystem fallback
+var embeddedFiles embed.FS
 
 func main() {
 	// Load configuration
@@ -40,24 +50,47 @@ func main() {
 
 	log.Printf("Database initialized at %s", cfg.DBPath)
 
-	// Create router and register routes
-	router := server.NewRouter()
-	handlerWrappers := server.NewHandlerWrappers(db)
-	handlerWrappers.RegisterRoutes(router)
+	// Create chi router
+	r := chi.NewRouter()
 
-	// Create HTTP server with middleware
-	handler := server.Chain(
-		router,
-		server.LoggingMiddleware,
-		server.RecoveryMiddleware,
-		server.CORSMiddleware,
-		server.ContentTypeMiddleware,
-		server.SecurityMiddleware,
-	)
+	// Add middleware
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(server.CORSMiddleware)
+	r.Use(server.ContentTypeMiddleware)
+	r.Use(server.SecurityMiddleware)
+
+	// Create embedded file system for static assets
+	// For development, use filesystem fallback
+	var staticFS fs.FS = nil
+
+	// Create handlers
+	shipmentHandler := handlers.NewShipmentHandler(db)
+	healthHandler := handlers.NewHealthHandler(db)
+	carrierHandler := handlers.NewCarrierHandler(db)
+	dashboardHandler := handlers.NewDashboardHandler(db)
+	staticHandler := handlers.NewStaticHandler(staticFS)
+
+	// API routes
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/shipments", shipmentHandler.GetShipments)
+		r.Post("/shipments", shipmentHandler.CreateShipment)
+		r.Get("/shipments/{id}", shipmentHandler.GetShipmentByID)
+		r.Put("/shipments/{id}", shipmentHandler.UpdateShipment)
+		r.Delete("/shipments/{id}", shipmentHandler.DeleteShipment)
+		r.Get("/shipments/{id}/events", shipmentHandler.GetShipmentEvents)
+		r.Post("/shipments/{id}/refresh", shipmentHandler.RefreshShipment)
+		r.Get("/health", healthHandler.HealthCheck)
+		r.Get("/carriers", carrierHandler.GetCarriers)
+		r.Get("/dashboard/stats", dashboardHandler.GetStats)
+	})
+
+	// Static file routes (catch-all for SPA)
+	r.Get("/*", staticHandler.ServeHTTP)
 
 	srv := &http.Server{
 		Addr:    cfg.Address(),
-		Handler: handler,
+		Handler: r,
 		
 		// Timeouts
 		ReadTimeout:  15 * time.Second,

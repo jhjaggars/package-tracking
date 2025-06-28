@@ -55,6 +55,7 @@ func (r *Router) DELETE(pattern string, handler HandlerFunc) {
 
 // addRoute adds a route to the router
 func (r *Router) addRoute(method, pattern string, handler HandlerFunc) {
+	// Route registration
 	route := Route{
 		Method:  method,
 		Pattern: pattern,
@@ -63,33 +64,41 @@ func (r *Router) addRoute(method, pattern string, handler HandlerFunc) {
 
 	// Convert pattern to regex and extract parameter names
 	route.regex, route.params = patternToRegex(pattern)
+	// Regex compilation complete
 	r.routes = append(r.routes, route)
 }
 
 // ServeHTTP implements http.Handler interface
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Handle incoming request
 	// Find matching route
 	route, params := r.findRoute(req.Method, req.URL.Path)
 	if route == nil {
+		// No matching route found
 		http.NotFound(w, req)
 		return
 	}
 
 	// Call the handler with extracted parameters
+	// Call matched route handler
 	route.Handler(w, req, params)
 }
 
 // findRoute finds a matching route and extracts parameters
 func (r *Router) findRoute(method, path string) (*Route, map[string]string) {
+	// Search for matching route
 	for _, route := range r.routes {
+		// Check route match
 		if route.Method != method {
 			continue
 		}
 
 		matches := route.regex.FindStringSubmatch(path)
 		if matches == nil {
+			// Route does not match
 			continue
 		}
+		// Route matched successfully
 
 		// Extract parameters
 		params := make(map[string]string)
@@ -109,19 +118,32 @@ func (r *Router) findRoute(method, path string) (*Route, map[string]string) {
 func patternToRegex(pattern string) (*regexp.Regexp, []string) {
 	var params []string
 	
-	// Escape special regex characters except {/}
-	escaped := regexp.QuoteMeta(pattern)
-	
-	// Find parameter placeholders like {id}
-	paramRegex := regexp.MustCompile(`\\{([^}]+)\\}`)
+	// Find parameter placeholders like {id} BEFORE escaping
+	paramRegex := regexp.MustCompile(`{([^}]+)}`)
 	
 	// Replace each {param} with a capturing group
-	regexPattern := paramRegex.ReplaceAllStringFunc(escaped, func(match string) string {
-		// Extract parameter name (remove \{ and \})
-		paramName := strings.Trim(match, "\\{}")
+	regexPattern := paramRegex.ReplaceAllStringFunc(pattern, func(match string) string {
+		// Extract parameter name (remove { and })
+		paramName := strings.Trim(match, "{}")
+		// Process parameter
 		params = append(params, paramName)
+		
+		// Special handling for catch-all patterns like {path:.*}
+		if strings.Contains(paramName, ":.*") {
+			// Use catch-all pattern
+			return `(.*)` // Match everything including slashes and empty string
+		}
+		// Use normal parameter pattern
 		return `([^/]+)` // Match any characters except slash
 	})
+	
+	// Now escape special regex characters in the resulting pattern
+	regexPattern = regexp.QuoteMeta(regexPattern)
+	
+	// Unescape our capturing groups
+	regexPattern = strings.ReplaceAll(regexPattern, `\(\[\^\\/\]\+\)`, `([^/]+)`)
+	regexPattern = strings.ReplaceAll(regexPattern, `\(\.\*\)`, `(.*)`)
+	regexPattern = strings.ReplaceAll(regexPattern, `\(\[\^\/\]\+\)`, `([^/]+)`)
 	
 	// Anchor the pattern to match the entire path
 	regexPattern = "^" + regexPattern + "$"
