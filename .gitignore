@@ -33,6 +33,19 @@ go.work
 logs/
 
 # IDE and editor files
+# Database files
+database.db
+*.db
+
+# Binary files
+bin/
+*.exe
+
+# Go build artifacts
+*.test
+*.out
+
+# IDE files
 .vscode/
 .idea/
 *.swp
@@ -51,3 +64,13 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+=======
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
