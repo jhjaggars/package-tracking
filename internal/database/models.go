@@ -71,6 +71,33 @@ func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 	return shipments, rows.Err()
 }
 
+// GetActiveByCarrier returns all active (non-delivered) shipments for a specific carrier
+func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
+	query := `SELECT id, tracking_number, carrier, description, status, 
+			  created_at, updated_at, expected_delivery, is_delivered 
+			  FROM shipments WHERE is_delivered = false AND carrier = ? ORDER BY created_at DESC`
+	
+	rows, err := s.db.Query(query, carrier)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var shipments []Shipment
+	for rows.Next() {
+		var shipment Shipment
+		err := rows.Scan(&shipment.ID, &shipment.TrackingNumber, &shipment.Carrier,
+			&shipment.Description, &shipment.Status, &shipment.CreatedAt,
+			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered)
+		if err != nil {
+			return nil, err
+		}
+		shipments = append(shipments, shipment)
+	}
+
+	return shipments, rows.Err()
+}
+
 // GetByID returns a shipment by ID
 func (s *ShipmentStore) GetByID(id int) (*Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
@@ -207,6 +234,43 @@ func (t *TrackingEventStore) GetByShipmentID(shipmentID int) ([]TrackingEvent, e
 	}
 
 	return events, rows.Err()
+}
+
+// CreateEvent creates a new tracking event if it doesn't already exist
+func (t *TrackingEventStore) CreateEvent(event *TrackingEvent) error {
+	// Check if event already exists (deduplication)
+	var count int
+	checkQuery := `SELECT COUNT(*) FROM tracking_events 
+				   WHERE shipment_id = ? AND timestamp = ? AND description = ?`
+	err := t.db.QueryRow(checkQuery, event.ShipmentID, event.Timestamp, event.Description).Scan(&count)
+	if err != nil {
+		return err
+	}
+	
+	// Skip if event already exists
+	if count > 0 {
+		return nil
+	}
+	
+	// Insert new event
+	query := `INSERT INTO tracking_events (shipment_id, timestamp, location, status, description) 
+			  VALUES (?, ?, ?, ?, ?)`
+	
+	result, err := t.db.Exec(query, event.ShipmentID, event.Timestamp, 
+		event.Location, event.Status, event.Description)
+	if err != nil {
+		return err
+	}
+	
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	
+	event.ID = int(id)
+	event.CreatedAt = time.Now()
+	
+	return nil
 }
 
 // CarrierStore handles database operations for carriers
