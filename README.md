@@ -7,6 +7,8 @@ A comprehensive two-part system for tracking shipments to your home, built with 
 **Part 1: Core Tracking System** ✅ **COMPLETE**
 - Manual shipment entry with comprehensive CRUD operations
 - RESTful API with custom HTTP router and middleware
+- **Command-line interface (CLI) for user-friendly package management**
+- **On-demand tracking refresh with rate limiting**
 - Production-ready server with graceful shutdown and signal handling
 - Carrier API integration for USPS, UPS, FedEx, and DHL
 - **Web scraping fallback for all carriers (no API keys required)**
@@ -35,6 +37,37 @@ cd package-tracking
 go run cmd/server/main.go
 
 # Server starts on http://localhost:8080
+```
+
+### Using the CLI Tool
+```bash
+# Build the CLI tool
+go build -o bin/package-tracker cmd/cli/main.go
+
+# Add a shipment
+./bin/package-tracker add --tracking "1Z999AA1234567890" --carrier "ups" --description "My Package"
+
+# List all shipments
+./bin/package-tracker list
+
+# Get specific shipment details
+./bin/package-tracker get 1
+
+# View tracking events
+./bin/package-tracker events 1
+
+# Manually refresh tracking data (triggers fresh scraping)
+./bin/package-tracker refresh 1
+
+# Update shipment description
+./bin/package-tracker update 1 --description "Updated Description"
+
+# Delete a shipment
+./bin/package-tracker delete 1
+
+# Help for any command
+./bin/package-tracker --help
+./bin/package-tracker add --help
 ```
 
 ### Testing the API
@@ -95,7 +128,10 @@ curl -X PUT http://localhost:8080/api/shipments/1 \
 # 5. List all shipments to see your packages
 curl http://localhost:8080/api/shipments
 
-# 6. Delete a shipment when no longer needed
+# 6. Manually refresh tracking data (triggers fresh scraping)
+curl -X POST http://localhost:8080/api/shipments/1/refresh
+
+# 7. Delete a shipment when no longer needed
 curl -X DELETE http://localhost:8080/api/shipments/1
 ```
 
@@ -118,12 +154,13 @@ curl -X DELETE http://localhost:8080/api/shipments/1
 package-tracking/
 ├── cmd/
 │   ├── server/main.go           # API server entry point
-│   └── cli/main.go              # CLI client (planned)
+│   └── cli/main.go              # CLI client for user-friendly interaction
 ├── internal/
 │   ├── config/                  # Configuration management
 │   ├── database/                # Database models and operations
-│   ├── handlers/                # HTTP request handlers
+│   ├── handlers/                # HTTP request handlers (including refresh endpoint)
 │   ├── carriers/                # Carrier API clients (USPS, UPS, FedEx, DHL)
+│   ├── cli/                     # CLI client API and output formatting
 │   └── server/                  # Router, middleware, and server logic
 ├── go.mod                       # Go module definition
 └── database.db                  # SQLite database (auto-created)
@@ -134,15 +171,17 @@ package-tracking/
 ### Shipment
 ```go
 type Shipment struct {
-    ID               int        `json:"id"`
-    TrackingNumber   string     `json:"tracking_number"`
-    Carrier          string     `json:"carrier"`
-    Description      string     `json:"description"`
-    Status           string     `json:"status"`
-    CreatedAt        time.Time  `json:"created_at"`
-    UpdatedAt        time.Time  `json:"updated_at"`
-    ExpectedDelivery *time.Time `json:"expected_delivery,omitempty"`
-    IsDelivered      bool       `json:"is_delivered"`
+    ID                  int        `json:"id"`
+    TrackingNumber      string     `json:"tracking_number"`
+    Carrier             string     `json:"carrier"`
+    Description         string     `json:"description"`
+    Status              string     `json:"status"`
+    CreatedAt           time.Time  `json:"created_at"`
+    UpdatedAt           time.Time  `json:"updated_at"`
+    ExpectedDelivery    *time.Time `json:"expected_delivery,omitempty"`
+    IsDelivered         bool       `json:"is_delivered"`
+    LastManualRefresh   *time.Time `json:"last_manual_refresh,omitempty"`
+    ManualRefreshCount  int        `json:"manual_refresh_count"`
 }
 ```
 
@@ -168,6 +207,7 @@ type TrackingEvent struct {
 - `PUT /api/shipments/{id}` - Update shipment
 - `DELETE /api/shipments/{id}` - Delete shipment
 - `GET /api/shipments/{id}/events` - Get tracking events for shipment
+- `POST /api/shipments/{id}/refresh` - **Manual refresh tracking data (triggers fresh scraping)**
 
 ### System
 - `GET /api/health` - Health check with database connectivity
@@ -196,6 +236,47 @@ DHL_API_KEY=your_key           # Falls back to web scraping if not provided
 ```
 
 **Note**: All carriers (USPS, UPS, FedEx, DHL) work immediately without any configuration! The system automatically falls back to web scraping when API keys are not configured, providing 100% zero-configuration tracking coverage.
+
+## 🖥️ CLI Tool Features
+
+The command-line interface provides a user-friendly way to interact with the package tracking system:
+
+### Core Commands
+- **`add`** - Add new shipments with tracking numbers
+- **`list`** - View all shipments in table or JSON format
+- **`get`** - Get detailed information about a specific shipment
+- **`events`** - View tracking events and history for a shipment
+- **`update`** - Modify shipment descriptions
+- **`delete`** - Remove shipments from tracking
+- **`refresh`** - **Manually trigger fresh tracking data scraping**
+
+### Key Features
+- **Multiple output formats**: Table (default) and JSON
+- **Comprehensive error handling**: Clear error messages and validation
+- **Configuration**: Server URL via environment variables or flags
+- **Rate limiting**: Built-in protection against excessive refresh requests
+- **Quiet mode**: Minimal output for scripting and automation
+
+### Manual Refresh Feature ⚡
+The `refresh` command triggers on-demand scraping for the freshest tracking data:
+
+```bash
+# Basic refresh
+./bin/package-tracker refresh 123
+
+# Verbose mode with detailed information
+./bin/package-tracker refresh 123 --verbose
+
+# JSON output for scripting
+./bin/package-tracker refresh 123 --format json
+```
+
+**Features:**
+- ✅ **Fresh data guarantee**: Always uses web scraping, bypasses API cache
+- ✅ **Rate limiting**: 5-minute cooldown between refreshes per shipment
+- ✅ **Smart deduplication**: Prevents duplicate tracking events
+- ✅ **Status updates**: Automatically updates delivery status
+- ✅ **Error handling**: Graceful handling of carrier issues and rate limits
 
 ## 🧪 Testing
 
@@ -310,6 +391,16 @@ kill -9 <pid>
 - ✅ Error handling (not found, rate limits, HTTP errors)
 - ✅ **100% Zero configuration required** - Works immediately without API keys for all carriers
 
+**On-Demand Refresh System** ✅ **COMPLETE**
+- ✅ Manual refresh endpoint (`POST /api/shipments/{id}/refresh`)
+- ✅ Rate limiting (5-minute cooldown between refreshes per shipment)
+- ✅ Force scraping client usage for maximum freshness
+- ✅ Comprehensive error handling (rate limits, carrier errors, invalid shipments)
+- ✅ Database tracking of refresh attempts and timestamps
+- ✅ CLI integration with `refresh` command
+- ✅ Deduplication of tracking events
+- ✅ Automatic shipment status updates from fresh tracking data
+
 ### 🚧 **PLANNED (Future Phases)**
 
 **Phase 2: Complete Alternative Tracking Methods** ✅ **COMPLETE**
@@ -328,22 +419,23 @@ kill -9 <pid>
 - Retry logic and failure handling for API outages
 - Smart fallback from API to web scraping on failures
 
-**Phase 4: CLI Client Interface**
-- Command-line client for API interaction (`cmd/cli/main.go`)
-- CRUD operations for shipments and tracking events
-- Support for table and JSON output formats
-- Configuration file support (`~/.package-tracker.yaml`)
-- User-friendly commands with comprehensive help
-- Integration with existing REST API
+**CLI Client Interface** ✅ **COMPLETE**
+- ✅ Command-line client for API interaction (`cmd/cli/main.go`)
+- ✅ CRUD operations for shipments and tracking events
+- ✅ Support for table and JSON output formats
+- ✅ Configuration support via environment variables and flags
+- ✅ User-friendly commands with comprehensive help
+- ✅ Integration with existing REST API
+- ✅ **Manual refresh command** for on-demand tracking updates
 
-**Phase 5: Web Interface** 
+**Phase 4: Web Interface** 
 - HTML templates with Go's `html/template`
 - Responsive design with vanilla CSS/JS
 - Dashboard and shipment management forms
 - Real-time updates and notifications
 - Configuration UI for API credentials and scraping settings
 
-**Phase 6: AI Email Processing (Part 2)**
+**Phase 5: AI Email Processing (Part 2)**
 - Email monitoring (Gmail/Outlook/IMAP)
 - AI-powered tracking number extraction
 - User approval workflow for auto-detected shipments
