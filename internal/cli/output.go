@@ -93,6 +93,13 @@ func (f *OutputFormatter) PrintError(err error) {
 	}
 }
 
+// PrintInfo prints an informational message
+func (f *OutputFormatter) PrintInfo(message string) {
+	if !f.quiet {
+		fmt.Printf("ℹ %s\n", message)
+	}
+}
+
 // printShipmentsTable prints shipments in table format
 func (f *OutputFormatter) printShipmentsTable(shipments []database.Shipment) error {
 	if len(shipments) == 0 {

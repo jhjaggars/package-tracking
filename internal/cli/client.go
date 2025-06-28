@@ -59,6 +59,15 @@ type UpdateShipmentRequest struct {
 	Description string `json:"description"`
 }
 
+// RefreshResponse represents the response from a manual refresh request
+type RefreshResponse struct {
+	ShipmentID  int                      `json:"shipment_id"`
+	UpdatedAt   time.Time                `json:"updated_at"`
+	EventsAdded int                      `json:"events_added"`
+	TotalEvents int                      `json:"total_events"`
+	Events      []database.TrackingEvent `json:"events"`
+}
+
 // doRequest performs an HTTP request and handles errors
 func (c *Client) doRequest(method, path string, body interface{}) (*http.Response, error) {
 	url := c.baseURL + path
@@ -230,4 +239,24 @@ func (c *Client) GetEvents(shipmentID int) ([]database.TrackingEvent, error) {
 	}
 
 	return events, nil
+}
+
+// RefreshShipment manually refreshes tracking data for a shipment
+func (c *Client) RefreshShipment(shipmentID int) (*RefreshResponse, error) {
+	path := "/api/shipments/" + strconv.Itoa(shipmentID) + "/refresh"
+	resp, err := c.doRequest("POST", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var refreshResp RefreshResponse
+	if err := json.NewDecoder(resp.Body).Decode(&refreshResp); err != nil {
+		return nil, &APIError{
+			Code:    resp.StatusCode,
+			Message: fmt.Sprintf("Invalid response format: %v", err),
+		}
+	}
+
+	return &refreshResp, nil
 }
