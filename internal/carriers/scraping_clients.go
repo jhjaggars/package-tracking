@@ -29,6 +29,8 @@ func NewFedExScrapingClient(userAgent string) Client {
 
 // NewDHLScrapingClient creates a new DHL web scraping client
 func NewDHLScrapingClient(userAgent string) Client {
-	// TODO: Implement DHL scraping client
-	panic("DHL scraping client not yet implemented")
+	return &DHLScrapingClient{
+		ScrapingClient: NewScrapingClient("dhl", userAgent),
+		baseURL:        "https://www.dhl.com",
+	}
 }
