@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/urfave/cli/v2"
 	
@@ -166,9 +168,8 @@ func getShipment(c *cli.Context) error {
 		return cli.ShowCommandHelp(c, "get")
 	}
 
-	id, err := strconv.Atoi(c.Args().Get(0))
+	id, err := validateAndParseID(c.Args().Get(0), formatter)
 	if err != nil {
-		formatter.PrintError(err)
 		return err
 	}
 
@@ -191,9 +192,8 @@ func updateShipment(c *cli.Context) error {
 		return cli.ShowCommandHelp(c, "update")
 	}
 
-	id, err := strconv.Atoi(c.Args().Get(0))
+	id, err := validateAndParseID(c.Args().Get(0), formatter)
 	if err != nil {
-		formatter.PrintError(err)
 		return err
 	}
 
@@ -228,9 +228,8 @@ func deleteShipment(c *cli.Context) error {
 		return cli.ShowCommandHelp(c, "delete")
 	}
 
-	id, err := strconv.Atoi(c.Args().Get(0))
+	id, err := validateAndParseID(c.Args().Get(0), formatter)
 	if err != nil {
-		formatter.PrintError(err)
 		return err
 	}
 
@@ -257,9 +256,8 @@ func getEvents(c *cli.Context) error {
 		return cli.ShowCommandHelp(c, "events")
 	}
 
-	id, err := strconv.Atoi(c.Args().Get(0))
+	id, err := validateAndParseID(c.Args().Get(0), formatter)
 	if err != nil {
-		formatter.PrintError(err)
 		return err
 	}
 
@@ -270,6 +268,30 @@ func getEvents(c *cli.Context) error {
 	}
 
 	return formatter.PrintEvents(events)
+}
+
+// validateAndParseID validates that the argument is a non-empty, valid integer ID
+func validateAndParseID(arg string, formatter *cliapi.OutputFormatter) (int, error) {
+	if strings.TrimSpace(arg) == "" {
+		err := fmt.Errorf("ID cannot be empty")
+		formatter.PrintError(err)
+		return 0, err
+	}
+	
+	id, err := strconv.Atoi(arg)
+	if err != nil {
+		err = fmt.Errorf("invalid ID '%s': must be a positive integer", arg)
+		formatter.PrintError(err)
+		return 0, err
+	}
+	
+	if id <= 0 {
+		err := fmt.Errorf("invalid ID '%d': must be a positive integer", id)
+		formatter.PrintError(err)
+		return 0, err
+	}
+	
+	return id, nil
 }
 
 // initializeClient sets up configuration, formatter, and API client
@@ -284,7 +306,7 @@ func initializeClient(c *cli.Context) (*cliapi.Config, *cliapi.OutputFormatter, 
 	}
 
 	formatter := cliapi.NewOutputFormatter(config.Format, config.Quiet)
-	client := cliapi.NewClient(config.ServerURL)
+	client := cliapi.NewClientWithTimeout(config.ServerURL, config.RequestTimeout)
 
 	// Test connectivity
 	if err := client.HealthCheck(); err != nil {

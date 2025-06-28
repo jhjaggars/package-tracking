@@ -21,10 +21,15 @@ type Client struct {
 
 // NewClient creates a new API client
 func NewClient(baseURL string) *Client {
+	return NewClientWithTimeout(baseURL, 30*time.Second)
+}
+
+// NewClientWithTimeout creates a new API client with specified timeout
+func NewClientWithTimeout(baseURL string, timeout time.Duration) *Client {
 	return &Client{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }
@@ -36,6 +41,9 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
+	if e.Code == 0 {
+		return e.Message
+	}
 	return fmt.Sprintf("API error %d: %s", e.Code, e.Message)
 }
 
@@ -59,14 +67,20 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 	if body != nil {
 		jsonData, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			return nil, &APIError{
+				Code:    0,
+				Message: fmt.Sprintf("Invalid request data: %v", err),
+			}
 		}
 		reqBody = bytes.NewBuffer(jsonData)
 	}
 
 	req, err := http.NewRequest(method, url, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, &APIError{
+			Code:    0,
+			Message: fmt.Sprintf("Invalid request: %v", err),
+		}
 	}
 
 	if body != nil {
@@ -75,7 +89,10 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, &APIError{
+			Code:    0, // 0 indicates network error, not HTTP status
+			Message: fmt.Sprintf("Network error: %v", err),
+		}
 	}
 
 	// Handle API errors
@@ -116,7 +133,10 @@ func (c *Client) CreateShipment(req *CreateShipmentRequest) (*database.Shipment,
 
 	var shipment database.Shipment
 	if err := json.NewDecoder(resp.Body).Decode(&shipment); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, &APIError{
+			Code:    resp.StatusCode,
+			Message: fmt.Sprintf("Invalid response format: %v", err),
+		}
 	}
 
 	return &shipment, nil
@@ -132,7 +152,10 @@ func (c *Client) GetShipments() ([]database.Shipment, error) {
 
 	var shipments []database.Shipment
 	if err := json.NewDecoder(resp.Body).Decode(&shipments); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, &APIError{
+			Code:    resp.StatusCode,
+			Message: fmt.Sprintf("Invalid response format: %v", err),
+		}
 	}
 
 	return shipments, nil
@@ -149,7 +172,10 @@ func (c *Client) GetShipment(id int) (*database.Shipment, error) {
 
 	var shipment database.Shipment
 	if err := json.NewDecoder(resp.Body).Decode(&shipment); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, &APIError{
+			Code:    resp.StatusCode,
+			Message: fmt.Sprintf("Invalid response format: %v", err),
+		}
 	}
 
 	return &shipment, nil
@@ -166,7 +192,10 @@ func (c *Client) UpdateShipment(id int, req *UpdateShipmentRequest) (*database.S
 
 	var shipment database.Shipment
 	if err := json.NewDecoder(resp.Body).Decode(&shipment); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, &APIError{
+			Code:    resp.StatusCode,
+			Message: fmt.Sprintf("Invalid response format: %v", err),
+		}
 	}
 
 	return &shipment, nil
@@ -194,7 +223,10 @@ func (c *Client) GetEvents(shipmentID int) ([]database.TrackingEvent, error) {
 
 	var events []database.TrackingEvent
 	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, &APIError{
+			Code:    resp.StatusCode,
+			Message: fmt.Sprintf("Invalid response format: %v", err),
+		}
 	}
 
 	return events, nil

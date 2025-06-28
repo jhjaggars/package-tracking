@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -19,6 +20,10 @@ func TestDefaultConfig(t *testing.T) {
 	if config.Quiet != false {
 		t.Errorf("Expected default quiet to be false, got %v", config.Quiet)
 	}
+	
+	if config.RequestTimeout != 30*time.Second {
+		t.Errorf("Expected default timeout to be 30s, got %v", config.RequestTimeout)
+	}
 }
 
 func TestLoadConfigFromEnv(t *testing.T) {
@@ -26,10 +31,12 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	os.Setenv("PACKAGE_TRACKER_SERVER", "http://test.example.com:9090")
 	os.Setenv("PACKAGE_TRACKER_FORMAT", "json")
 	os.Setenv("PACKAGE_TRACKER_QUIET", "true")
+	os.Setenv("PACKAGE_TRACKER_TIMEOUT", "60")
 	defer func() {
 		os.Unsetenv("PACKAGE_TRACKER_SERVER")
 		os.Unsetenv("PACKAGE_TRACKER_FORMAT")
 		os.Unsetenv("PACKAGE_TRACKER_QUIET")
+		os.Unsetenv("PACKAGE_TRACKER_TIMEOUT")
 	}()
 	
 	config, err := LoadConfig("", "", false)
@@ -47,6 +54,10 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	
 	if config.Quiet != true {
 		t.Errorf("Expected quiet from env to be true, got %v", config.Quiet)
+	}
+	
+	if config.RequestTimeout != 60*time.Second {
+		t.Errorf("Expected timeout from env to be 60s, got %v", config.RequestTimeout)
 	}
 }
 
@@ -83,8 +94,10 @@ func TestConfigValidation(t *testing.T) {
 	}{
 		{"valid config", "http://localhost:8080", "table", false},
 		{"valid json format", "http://localhost:8080", "json", false},
+		{"valid https config", "https://api.example.com", "table", false},
 		{"just whitespace server URL", " ", "table", true},
 		{"invalid format", "http://localhost:8080", "xml", true},
+		{"invalid URL format", "://invalid", "table", true},
 	}
 	
 	for _, tt := range tests {
