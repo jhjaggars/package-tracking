@@ -189,10 +189,12 @@ func (c *ScrapingClient) mapScrapedStatus(statusText string) TrackingStatus {
 	switch {
 	case strings.Contains(status, "delivered"):
 		return StatusDelivered
-	case strings.Contains(status, "out for delivery"), strings.Contains(status, "on vehicle"):
+	case strings.Contains(status, "out for delivery"), strings.Contains(status, "on vehicle"), 
+		 strings.Contains(status, "on fedex vehicle"), strings.Contains(status, "vehicle for delivery"):
 		return StatusOutForDelivery
 	case strings.Contains(status, "in transit"), strings.Contains(status, "en route"), 
-		 strings.Contains(status, "departed"), strings.Contains(status, "arrived"):
+		 strings.Contains(status, "departed"), strings.Contains(status, "arrived"),
+		 strings.Contains(status, "at local fedex facility"), strings.Contains(status, "at facility"):
 		return StatusInTransit
 	case strings.Contains(status, "picked up"), strings.Contains(status, "acceptance"), 
 		 strings.Contains(status, "electronic"), strings.Contains(status, "pre-shipment"):

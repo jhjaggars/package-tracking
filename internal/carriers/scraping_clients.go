@@ -21,8 +21,10 @@ func NewUPSScrapingClient(userAgent string) Client {
 
 // NewFedExScrapingClient creates a new FedEx web scraping client
 func NewFedExScrapingClient(userAgent string) Client {
-	// TODO: Implement FedEx scraping client
-	panic("FedEx scraping client not yet implemented")
+	return &FedExScrapingClient{
+		ScrapingClient: NewScrapingClient("fedex", userAgent),
+		baseURL:        "https://www.fedex.com",
+	}
 }
 
 // NewDHLScrapingClient creates a new DHL web scraping client

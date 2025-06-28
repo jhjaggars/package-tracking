@@ -94,6 +94,28 @@ func TestClientFactory_CreateClient_UPSMissingCredentials(t *testing.T) {
 	}
 }
 
+func TestClientFactory_CreateClient_FedExMissingCredentials(t *testing.T) {
+	factory := NewClientFactory()
+	
+	// Test FedEx missing credentials - should fall back to scraping
+	factory.SetCarrierConfig("fedex", &CarrierConfig{
+		PreferredType: ClientTypeAPI,
+	})
+	
+	client, clientType, err := factory.CreateClient("fedex")
+	if err != nil {
+		t.Fatalf("Failed to create FedEx scraping fallback client: %v", err)
+	}
+	
+	if clientType != ClientTypeScraping {
+		t.Errorf("Expected scraping client as fallback, got %s", clientType)
+	}
+	
+	if client.GetCarrierName() != "fedex" {
+		t.Errorf("Expected carrier name 'fedex', got '%s'", client.GetCarrierName())
+	}
+}
+
 func TestClientFactory_CreateClient_UPS(t *testing.T) {
 	factory := NewClientFactory()
 	
@@ -202,19 +224,19 @@ func TestClientFactory_CreateClient_MissingCredentials(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			factory.SetCarrierConfig(tt.carrier, tt.config)
 			
-			if tt.carrier == "ups" {
-				// UPS should fall back to scraping successfully
+			if tt.carrier == "ups" || tt.carrier == "fedex" {
+				// UPS and FedEx should fall back to scraping successfully
 				client, clientType, err := factory.CreateClient(tt.carrier)
 				if err != nil {
-					t.Fatalf("Failed to create UPS scraping fallback client: %v", err)
+					t.Fatalf("Failed to create %s scraping fallback client: %v", tt.carrier, err)
 				}
 				
 				if clientType != ClientTypeScraping {
 					t.Errorf("Expected scraping client as fallback, got %s", clientType)
 				}
 				
-				if client.GetCarrierName() != "ups" {
-					t.Errorf("Expected carrier name 'ups', got '%s'", client.GetCarrierName())
+				if client.GetCarrierName() != tt.carrier {
+					t.Errorf("Expected carrier name '%s', got '%s'", tt.carrier, client.GetCarrierName())
 				}
 			} else {
 				// Other carriers should still panic since scraping clients aren't implemented yet
