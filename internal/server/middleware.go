@@ -31,9 +31,15 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		// Call the next handler
 		next.ServeHTTP(wrapper, r)
 		
-		// Log the request
+		// Log the request with different levels based on status code
 		duration := time.Since(start)
-		log.Printf("%s %s %d %v", r.Method, r.URL.Path, wrapper.statusCode, duration)
+		if wrapper.statusCode >= 500 {
+			log.Printf("ERROR: %s %s %d %v", r.Method, r.URL.Path, wrapper.statusCode, duration)
+		} else if wrapper.statusCode >= 400 {
+			log.Printf("WARN: %s %s %d %v", r.Method, r.URL.Path, wrapper.statusCode, duration)
+		} else {
+			log.Printf("INFO: %s %s %d %v", r.Method, r.URL.Path, wrapper.statusCode, duration)
+		}
 	})
 }
 

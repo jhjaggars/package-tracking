@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,6 +33,7 @@ func NewShipmentHandler(db *database.DB) *ShipmentHandler {
 func (h *ShipmentHandler) GetShipments(w http.ResponseWriter, r *http.Request) {
 	shipments, err := h.db.Shipments.GetAll()
 	if err != nil {
+		log.Printf("ERROR: Failed to get shipments: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to get shipments: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -45,12 +47,14 @@ func (h *ShipmentHandler) GetShipments(w http.ResponseWriter, r *http.Request) {
 func (h *ShipmentHandler) CreateShipment(w http.ResponseWriter, r *http.Request) {
 	var shipment database.Shipment
 	if err := json.NewDecoder(r.Body).Decode(&shipment); err != nil {
+		log.Printf("ERROR: Invalid JSON in CreateShipment: %v", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	// Validate required fields
 	if err := validateShipment(&shipment); err != nil {
+		log.Printf("ERROR: Validation failed for shipment: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -63,9 +67,11 @@ func (h *ShipmentHandler) CreateShipment(w http.ResponseWriter, r *http.Request)
 	// Create the shipment
 	if err := h.db.Shipments.Create(&shipment); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			log.Printf("ERROR: Duplicate tracking number: %s", shipment.TrackingNumber)
 			http.Error(w, "Tracking number already exists", http.StatusConflict)
 			return
 		}
+		log.Printf("ERROR: Failed to create shipment: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to create shipment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -89,6 +95,7 @@ func (h *ShipmentHandler) GetShipmentByID(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Shipment not found", http.StatusNotFound)
 			return
 		}
+		log.Printf("ERROR: Failed to get shipment %d: %v", id, err)
 		http.Error(w, fmt.Sprintf("Failed to get shipment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -124,6 +131,7 @@ func (h *ShipmentHandler) UpdateShipment(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Shipment not found", http.StatusNotFound)
 			return
 		}
+		log.Printf("ERROR: Failed to update shipment %d: %v", id, err)
 		http.Error(w, fmt.Sprintf("Failed to update shipment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -175,6 +183,7 @@ func (h *ShipmentHandler) GetShipmentEvents(w http.ResponseWriter, r *http.Reque
 	// Get tracking events
 	events, err := h.db.TrackingEvents.GetByShipmentID(id)
 	if err != nil {
+		log.Printf("ERROR: Failed to get tracking events for shipment %d: %v", id, err)
 		http.Error(w, fmt.Sprintf("Failed to get tracking events: %v", err), http.StatusInternalServerError)
 		return
 	}
