@@ -63,11 +63,43 @@ curl -X POST http://localhost:8080/api/shipments \
 # Create a DHL shipment (zero configuration required)
 curl -X POST http://localhost:8080/api/shipments \
   -H "Content-Type: application/json" \
-  -d '{"tracking_number":"1234567890","carrier":"dhl","description":"DHL Express"}'''
+  -d '{"tracking_number":"1234567890","carrier":"dhl","description":"DHL Express"}'
 
 # List shipments
 curl http://localhost:8080/api/shipments
 ```
+
+### Complete End-to-End Example
+Here's a step-by-step example showing how to add a tracking number and retrieve its details:
+
+```bash
+# 1. Add a UPS package to the system (works immediately - no setup required!)
+curl -X POST http://localhost:8080/api/shipments \
+  -H "Content-Type: application/json" \
+  -d '{"tracking_number":"1Z999AA1234567890","carrier":"ups","description":"Test Package"}'
+
+# Response will include the shipment ID, e.g.:
+# {"id":1,"tracking_number":"1Z999AA1234567890","carrier":"ups","description":"Test Package",...}
+
+# 2. Get shipment details by ID (replace '1' with the actual ID from step 1)
+curl http://localhost:8080/api/shipments/1
+
+# 3. Get tracking events for the shipment (shows real tracking data from carrier)
+curl http://localhost:8080/api/shipments/1/events
+
+# 4. Update the shipment description if needed
+curl -X PUT http://localhost:8080/api/shipments/1 \
+  -H "Content-Type: application/json" \
+  -d '{"description":"Updated Package Description"}'
+
+# 5. List all shipments to see your packages
+curl http://localhost:8080/api/shipments
+
+# 6. Delete a shipment when no longer needed
+curl -X DELETE http://localhost:8080/api/shipments/1
+```
+
+**Note**: The system will automatically attempt to fetch real tracking data from the carrier when you create a shipment or request tracking events. This works immediately without any API configuration thanks to the web scraping fallback system.
 
 ## 🏗️ Architecture
 
