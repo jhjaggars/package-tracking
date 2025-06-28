@@ -9,6 +9,8 @@ A comprehensive two-part system for tracking shipments to your home, built with 
 - RESTful API with custom HTTP router and middleware
 - Production-ready server with graceful shutdown and signal handling
 - Carrier API integration for USPS, UPS, FedEx, and DHL
+- **Web scraping fallback for USPS and UPS (no API keys required)**
+- Factory pattern with automatic API/scraping selection
 - Unified tracking interface with standardized error handling
 - Comprehensive test coverage with TDD methodology
 
@@ -43,10 +45,15 @@ curl http://localhost:8080/api/health
 # List carriers
 curl http://localhost:8080/api/carriers
 
-# Create a shipment
+# Create a shipment (works immediately - no API keys required for USPS/UPS!)
 curl -X POST http://localhost:8080/api/shipments \
   -H "Content-Type: application/json" \
   -d '{"tracking_number":"1Z999AA1234567890","carrier":"ups","description":"Test Package"}'
+
+# Create a USPS shipment (also works without setup)
+curl -X POST http://localhost:8080/api/shipments \
+  -H "Content-Type: application/json" \
+  -d '{"tracking_number":"9400111899562347123456","carrier":"usps","description":"Priority Mail"}'
 
 # List shipments
 curl http://localhost:8080/api/shipments
@@ -60,7 +67,7 @@ curl http://localhost:8080/api/shipments
 - **Router**: Custom HTTP router with path parameter extraction
 - **Middleware**: Logging, CORS, security headers, panic recovery
 - **Carrier APIs**: USPS (XML), UPS/FedEx (OAuth 2.0 JSON), DHL (API key JSON)
-- **Web Scraping**: Planned fallback for tracking via carrier websites
+- **Web Scraping**: USPS and UPS scraping clients with automatic fallback
 - **Testing**: Comprehensive TDD with mock HTTP servers
 - **Deployment**: Single binary + SQLite database file
 
@@ -137,12 +144,14 @@ DB_PATH=./database.db         # SQLite database path
 UPDATE_INTERVAL=1h            # Background update interval
 LOG_LEVEL=info               # Logging level (debug, info, warn, error)
 
-# Carrier API keys (optional)
-USPS_API_KEY=your_key
-UPS_API_KEY=your_key
-FEDEX_API_KEY=your_key
-DHL_API_KEY=your_key
+# Carrier API keys (optional - system works without them!)
+USPS_API_KEY=your_key          # Falls back to web scraping if not provided
+UPS_API_KEY=your_key           # Falls back to web scraping if not provided  
+FEDEX_API_KEY=your_key         # Required for FedEx tracking
+DHL_API_KEY=your_key           # Required for DHL tracking
 ```
+
+**Note**: USPS and UPS tracking work immediately without any configuration! The system automatically falls back to web scraping when API keys are not configured.
 
 ## 🧪 Testing
 
@@ -245,15 +254,27 @@ kill -9 <pid>
 - ✅ Rich metadata extraction (weight, dimensions, service types)
 - ✅ Event timeline parsing with location and timestamp data
 
+**Web Scraping Integration** 🚧 **PARTIAL COMPLETE (2/4 carriers)**
+- ✅ Factory pattern with automatic API/scraping fallback
+- ✅ Base scraping client with browser-like headers and rate limiting
+- ✅ **USPS web scraping** - Complete with comprehensive tracking number validation
+- ✅ **UPS web scraping** - Complete with 1Z format validation and event parsing
+- 🚧 FedEx web scraping - Planned
+- 🚧 DHL web scraping - Planned
+- ✅ HTML parsing with multiple regex patterns for different page layouts
+- ✅ Status mapping from scraped text to standardized TrackingStatus
+- ✅ Error handling (not found, rate limits, HTTP errors)
+- ✅ **Zero configuration required** - Works immediately without API keys
+
 ### 🚧 **PLANNED (Future Phases)**
 
-**Phase 2: Alternative Tracking Methods**
-- Web scraping clients for carrier websites (fallback when APIs unavailable)
-- HTML parsing for tracking pages (USPS, UPS, FedEx, DHL public sites)
-- Headless browser automation for JavaScript-heavy tracking pages
-- CAPTCHA handling and anti-bot detection circumvention
-- Rate limiting and respectful scraping practices
-- Unified fallback system when API credentials are unavailable
+**Phase 2: Complete Alternative Tracking Methods**
+- 🚧 FedEx web scraping client with HTML parsing and event extraction
+- 🚧 DHL web scraping client with comprehensive tracking support
+- 🚧 Headless browser automation for JavaScript-heavy tracking pages
+- 🚧 CAPTCHA handling and anti-bot detection circumvention
+- ✅ Rate limiting and respectful scraping practices
+- ✅ Unified fallback system when API credentials are unavailable
 
 **Phase 3: Background Services**
 - Automatic tracking updates for active shipments
@@ -307,6 +328,8 @@ go build -o bin/server cmd/server/main.go
 - **Production Ready**: Proper error handling, logging, and graceful shutdown
 - **Extensible Design**: Easy to add new carriers, endpoints, and features
 - **Resilient Tracking**: Multiple data sources (APIs + web scraping) for maximum reliability
+- **Zero Configuration**: Works immediately for USPS/UPS without any setup required
+- **Automatic Fallback**: Seamless transition from API to web scraping when credentials unavailable
 - **Respectful Automation**: Rate limiting and ethical web scraping practices
 
 ### Key Technical Decisions
@@ -315,7 +338,9 @@ go build -o bin/server cmd/server/main.go
 - **Standard Library HTTP**: Reliable, well-tested, and lightweight
 - **In-Memory Testing**: Fast test execution without external dependencies
 - **Unified Client Interface**: Consistent API across all carriers despite different authentication methods
+- **Factory Pattern**: Automatic client selection based on available credentials and configuration
 - **Comprehensive Error Handling**: CarrierError type with retry and rate limit flags
+- **Web Scraping Fallback**: Browser-like headers and respectful rate limiting for carrier websites
 - **Test-Driven Development**: All carrier clients built with failing tests first
 
 ---
