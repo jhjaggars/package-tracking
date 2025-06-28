@@ -12,6 +12,9 @@ Package tracking system built in Go with SQLite. This is "System 1" of a planned
 # Build the server
 go build -o bin/server cmd/server/main.go
 
+# Build the CLI client
+go build -o bin/package-tracker cmd/cli/main.go
+
 # Run the server directly
 go run cmd/server/main.go
 
@@ -38,14 +41,46 @@ go test -v ./internal/config
 # To use a different path: DB_PATH=./custom.db go run cmd/server/main.go
 ```
 
+### CLI Usage
+```bash
+# Add a new shipment
+./bin/package-tracker add --tracking "1Z999AA1234567890" --carrier "ups" --description "My Package"
+
+# List all shipments (table format)
+./bin/package-tracker list
+
+# List shipments in JSON format
+./bin/package-tracker list --format json
+
+# Get specific shipment details
+./bin/package-tracker get 1
+
+# View tracking events for a shipment
+./bin/package-tracker events 1
+
+# Update shipment description
+./bin/package-tracker update 1 --description "Updated description"
+
+# Delete a shipment
+./bin/package-tracker delete 1
+
+# Use with custom server endpoint
+./bin/package-tracker --server http://example.com:8080 list
+
+# Quiet mode (minimal output)
+./bin/package-tracker --quiet list
+```
+
 ## Architecture
 
 ### Project Structure
 - `cmd/server/main.go` - Application entry point with server setup and graceful shutdown
+- `cmd/cli/main.go` - CLI client entry point for interacting with the API
 - `internal/config/` - Configuration management with environment variable support
 - `internal/database/` - SQLite database layer with models and stores
 - `internal/handlers/` - HTTP handlers for REST API endpoints
 - `internal/server/` - HTTP server setup, routing, and middleware
+- `internal/cli/` - CLI client configuration, HTTP client, and output formatting
 
 ### Core Components
 1. **Config System**: Environment-based configuration with validation
@@ -74,6 +109,20 @@ Configuration via environment variables with sensible defaults:
 - `UPDATE_INTERVAL` (default: 1h)
 - `USPS_API_KEY`, `UPS_API_KEY`, `FEDEX_API_KEY`, `DHL_API_KEY` (optional)
 - `LOG_LEVEL` (default: info)
+
+#### CLI Configuration
+- `PACKAGE_TRACKER_SERVER` (default: http://localhost:8080)
+- `PACKAGE_TRACKER_FORMAT` (default: table)
+- `PACKAGE_TRACKER_QUIET` (default: false)
+
+CLI also supports a configuration file at `~/.package-tracker.json`:
+```json
+{
+  "server_url": "http://localhost:8080",
+  "format": "table",
+  "quiet": false
+}
+```
 
 ## Testing Strategy
 - Unit tests for handlers using in-memory SQLite databases
