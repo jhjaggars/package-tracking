@@ -19,6 +19,32 @@ type SimpleBrowserPool struct {
 	cleanupDone chan struct{}
 }
 
+// ValidateChromeAvailable checks if Chrome/Chromium is available and working
+func ValidateChromeAvailable() error {
+	// Create a test allocator to check Chrome availability
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(),
+		chromedp.Headless,
+		chromedp.NoSandbox,
+		chromedp.DisableGPU,
+	)
+	defer allocCancel()
+
+	// Create browser context with short timeout
+	ctx, cancel := chromedp.NewContext(allocCtx)
+	defer cancel()
+
+	// Test Chrome availability with a simple operation
+	testCtx, testCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer testCancel()
+
+	err := chromedp.Run(testCtx, chromedp.Navigate("about:blank"))
+	if err != nil {
+		return fmt.Errorf("Chrome/Chromium not available or not working: %w", err)
+	}
+
+	return nil
+}
+
 // NewBrowserPool creates a new browser pool with the given configuration
 func NewBrowserPool(config *BrowserPoolConfig, options *HeadlessOptions) *SimpleBrowserPool {
 	if config == nil {
@@ -123,12 +149,19 @@ func (p *SimpleBrowserPool) Close() error {
 // Stats returns current pool statistics
 func (p *SimpleBrowserPool) Stats() BrowserPoolStats {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-
+	
 	active := 0
 	idle := 0
+	total := len(p.instances)
 
-	for _, instance := range p.instances {
+	// Make a copy of the slice to avoid potential race conditions
+	instances := make([]*BrowserInstance, total)
+	copy(instances, p.instances)
+	
+	p.mu.RUnlock()
+
+	// Count active/idle without holding the lock
+	for _, instance := range instances {
 		if instance.inUse {
 			active++
 		} else {
@@ -139,7 +172,7 @@ func (p *SimpleBrowserPool) Stats() BrowserPoolStats {
 	return BrowserPoolStats{
 		Active: active,
 		Idle:   idle,
-		Total:  len(p.instances),
+		Total:  total, // Use the snapshot total
 	}
 }
 
@@ -160,11 +193,12 @@ func (p *SimpleBrowserPool) createInstance(ctx context.Context) (*BrowserInstanc
 	}
 
 	return &BrowserInstance{
-		ctx:       browserCtx,
-		cancel:    browserCancel,
-		allocator: allocCtx,
-		lastUsed:  time.Now(),
-		inUse:     false,
+		ctx:         browserCtx,
+		cancel:      browserCancel,
+		allocCancel: allocCancel,
+		allocator:   allocCtx,
+		lastUsed:    time.Now(),
+		inUse:       false,
 	}, nil
 }
 
@@ -172,6 +206,9 @@ func (p *SimpleBrowserPool) createInstance(ctx context.Context) (*BrowserInstanc
 func (p *SimpleBrowserPool) cleanupInstance(instance *BrowserInstance) {
 	if instance.cancel != nil {
 		instance.cancel()
+	}
+	if instance.allocCancel != nil {
+		instance.allocCancel()
 	}
 }
 
@@ -268,8 +305,21 @@ func (p *SimpleBrowserPool) ExecuteWithBrowser(ctx context.Context, fn func(cont
 	}
 	defer p.Put(instance)
 
-	// Create a timeout context for the operation
-	opCtx, cancel := context.WithTimeout(instance.ctx, p.options.Timeout)
+	// Create a timeout context that respects both parent and pool timeouts
+	var opCtx context.Context
+	var cancel context.CancelFunc
+	
+	// Use the shorter of parent context deadline or pool timeout
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		remaining := time.Until(deadline)
+		if remaining < p.options.Timeout {
+			opCtx, cancel = context.WithTimeout(instance.ctx, remaining)
+		} else {
+			opCtx, cancel = context.WithTimeout(instance.ctx, p.options.Timeout)
+		}
+	} else {
+		opCtx, cancel = context.WithTimeout(instance.ctx, p.options.Timeout)
+	}
 	defer cancel()
 
 	return fn(opCtx)

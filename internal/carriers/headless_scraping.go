@@ -211,8 +211,13 @@ func (h *HeadlessScrapingClient) wrapError(err error, message string) error {
 
 	// Try to capture additional debug info if in debug mode
 	if h.options.DebugMode {
-		// Note: In a real implementation, you might want to capture
-		// page source and screenshot here for debugging
+		// Capture debug artifacts with size limits
+		if h.options.MaxDebugArtifactSize > 0 {
+			// Note: In a real implementation, you might want to capture
+			// page source and screenshot here for debugging
+			// For now, we just ensure the error is properly truncated
+			headlessErr.TruncateDebugArtifacts(h.options.MaxDebugArtifactSize)
+		}
 	}
 
 	return headlessErr

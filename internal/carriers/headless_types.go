@@ -39,19 +39,22 @@ type HeadlessOptions struct {
 	ViewportHeight int64
 	// DebugMode enables additional logging
 	DebugMode bool
+	// MaxDebugArtifactSize limits size of screenshots and page sources (in bytes)
+	MaxDebugArtifactSize int64
 }
 
 // DefaultHeadlessOptions returns sensible defaults for headless browsing
 func DefaultHeadlessOptions() *HeadlessOptions {
 	return &HeadlessOptions{
-		Headless:       true,
-		Timeout:        30 * time.Second,
-		WaitStrategy:   WaitForSelector,
-		DisableImages:  true,
-		UserAgent:      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		ViewportWidth:  1920,
-		ViewportHeight: 1080,
-		DebugMode:      false,
+		Headless:             true,
+		Timeout:              30 * time.Second,
+		WaitStrategy:         WaitForSelector,
+		DisableImages:        true,
+		UserAgent:            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		ViewportWidth:        1920,
+		ViewportHeight:       1080,
+		DebugMode:            false,
+		MaxDebugArtifactSize: 5 * 1024 * 1024, // 5MB limit for debug artifacts
 	}
 }
 
@@ -90,11 +93,12 @@ func DefaultBrowserPoolConfig() *BrowserPoolConfig {
 
 // BrowserInstance represents a managed browser instance
 type BrowserInstance struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	lastUsed  time.Time
-	inUse     bool
-	allocator context.Context
+	ctx          context.Context
+	cancel       context.CancelFunc
+	allocCancel  context.CancelFunc  // Cleanup function for allocator
+	lastUsed     time.Time
+	inUse        bool
+	allocator    context.Context
 }
 
 // HeadlessBrowserClient extends the base Client interface with headless-specific capabilities
@@ -152,6 +156,26 @@ type HeadlessCarrierError struct {
 	Screenshot    []byte `json:"screenshot,omitempty"`
 	PageSource    string `json:"page_source,omitempty"`
 	JavaScriptLog string `json:"javascript_log,omitempty"`
+}
+
+// TruncateDebugArtifacts limits the size of debug artifacts to prevent memory issues
+func (e *HeadlessCarrierError) TruncateDebugArtifacts(maxSize int64) {
+	// Truncate screenshot if too large
+	if int64(len(e.Screenshot)) > maxSize {
+		e.Screenshot = e.Screenshot[:maxSize]
+	}
+	
+	// Truncate page source if too large
+	if int64(len(e.PageSource)) > maxSize {
+		truncated := e.PageSource[:maxSize]
+		e.PageSource = truncated + "\n...(truncated)"
+	}
+	
+	// Truncate JavaScript log if too large
+	if int64(len(e.JavaScriptLog)) > maxSize {
+		truncated := e.JavaScriptLog[:maxSize]
+		e.JavaScriptLog = truncated + "\n...(truncated)"
+	}
 }
 
 func (e *HeadlessCarrierError) Error() string {

@@ -68,16 +68,30 @@ func (c *FedExHeadlessClient) Track(ctx context.Context, req *TrackingRequest) (
 	for _, trackingNumber := range req.TrackingNumbers {
 		result, err := c.trackSingle(ctx, trackingNumber)
 		if err != nil {
-			if carrierErr, ok := err.(*CarrierError); ok {
-				errors = append(errors, *carrierErr)
+			// Handle different error types consistently
+			switch e := err.(type) {
+			case *CarrierError:
+				errors = append(errors, *e)
 				// For rate limits, return immediately
-				if carrierErr.RateLimit {
+				if e.RateLimit {
 					return nil, err
 				}
-			} else if headlessErr, ok := err.(*HeadlessCarrierError); ok {
-				errors = append(errors, *headlessErr.CarrierError)
-			} else {
-				return nil, err
+			case *HeadlessCarrierError:
+				errors = append(errors, *e.CarrierError)
+				// For rate limits in headless errors, also return immediately
+				if e.CarrierError.RateLimit {
+					return nil, err
+				}
+			default:
+				// Convert unknown errors to CarrierError for consistency
+				carrierErr := &CarrierError{
+					Carrier:   "fedex",
+					Code:      "UNKNOWN_ERROR",
+					Message:   err.Error(),
+					Retryable: false,
+					RateLimit: false,
+				}
+				errors = append(errors, *carrierErr)
 			}
 		} else if result != nil {
 			results = append(results, *result)

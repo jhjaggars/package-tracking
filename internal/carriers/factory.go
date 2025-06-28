@@ -141,6 +141,11 @@ func (f *ClientFactory) createScrapingClient(carrier string, config *CarrierConf
 
 // createHeadlessClient creates a headless browser client
 func (f *ClientFactory) createHeadlessClient(carrier string, config *CarrierConfig) (Client, error) {
+	// Validate Chrome availability before creating headless clients
+	if err := ValidateChromeAvailable(); err != nil {
+		return nil, fmt.Errorf("headless client unavailable: %w", err)
+	}
+	
 	switch carrier {
 	case "fedex":
 		return NewFedExHeadlessClient(), nil
