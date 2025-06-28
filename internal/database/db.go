@@ -74,7 +74,9 @@ func (db *DB) migrate() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		expected_delivery DATETIME,
-		is_delivered BOOLEAN DEFAULT FALSE
+		is_delivered BOOLEAN DEFAULT FALSE,
+		last_manual_refresh DATETIME,
+		manual_refresh_count INTEGER DEFAULT 0
 	);
 
 	CREATE TABLE IF NOT EXISTS tracking_events (
@@ -109,7 +111,12 @@ func (db *DB) migrate() error {
 	}
 
 	// Insert default carriers if they don't exist
-	return db.insertDefaultCarriers()
+	if err := db.insertDefaultCarriers(); err != nil {
+		return err
+	}
+
+	// Run additional migrations for new fields
+	return db.migrateRefreshFields()
 }
 
 // insertDefaultCarriers adds default carrier data
@@ -142,6 +149,36 @@ func (db *DB) insertDefaultCarriers() error {
 			)
 			if err != nil {
 				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// migrateRefreshFields adds refresh-related fields to existing databases
+func (db *DB) migrateRefreshFields() error {
+	// Check if columns already exist
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM pragma_table_info('shipments') 
+		WHERE name = 'last_manual_refresh'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check column existence: %w", err)
+	}
+
+	// If columns don't exist, add them
+	if columnExists == 0 {
+		alterQueries := []string{
+			"ALTER TABLE shipments ADD COLUMN last_manual_refresh DATETIME",
+			"ALTER TABLE shipments ADD COLUMN manual_refresh_count INTEGER DEFAULT 0",
+		}
+
+		for _, query := range alterQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to execute migration query '%s': %w", query, err)
 			}
 		}
 	}

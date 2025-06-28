@@ -6,15 +6,17 @@ import (
 )
 
 type Shipment struct {
-	ID               int        `json:"id"`
-	TrackingNumber   string     `json:"tracking_number"`
-	Carrier          string     `json:"carrier"`
-	Description      string     `json:"description"`
-	Status           string     `json:"status"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	ExpectedDelivery *time.Time `json:"expected_delivery,omitempty"`
-	IsDelivered      bool       `json:"is_delivered"`
+	ID                  int        `json:"id"`
+	TrackingNumber      string     `json:"tracking_number"`
+	Carrier             string     `json:"carrier"`
+	Description         string     `json:"description"`
+	Status              string     `json:"status"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	ExpectedDelivery    *time.Time `json:"expected_delivery,omitempty"`
+	IsDelivered         bool       `json:"is_delivered"`
+	LastManualRefresh   *time.Time `json:"last_manual_refresh,omitempty"`
+	ManualRefreshCount  int        `json:"manual_refresh_count"`
 }
 
 type TrackingEvent struct {
@@ -47,7 +49,8 @@ func NewShipmentStore(db *sql.DB) *ShipmentStore {
 // GetAll returns all shipments
 func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
-			  created_at, updated_at, expected_delivery, is_delivered 
+			  created_at, updated_at, expected_delivery, is_delivered,
+			  last_manual_refresh, manual_refresh_count 
 			  FROM shipments ORDER BY created_at DESC`
 	
 	rows, err := s.db.Query(query)
@@ -61,7 +64,8 @@ func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 		var shipment Shipment
 		err := rows.Scan(&shipment.ID, &shipment.TrackingNumber, &shipment.Carrier,
 			&shipment.Description, &shipment.Status, &shipment.CreatedAt,
-			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered)
+			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered,
+			&shipment.LastManualRefresh, &shipment.ManualRefreshCount)
 		if err != nil {
 			return nil, err
 		}
@@ -74,7 +78,8 @@ func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 // GetActiveByCarrier returns all active (non-delivered) shipments for a specific carrier
 func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
-			  created_at, updated_at, expected_delivery, is_delivered 
+			  created_at, updated_at, expected_delivery, is_delivered,
+			  last_manual_refresh, manual_refresh_count 
 			  FROM shipments WHERE is_delivered = false AND carrier = ? ORDER BY created_at DESC`
 	
 	rows, err := s.db.Query(query, carrier)
@@ -88,7 +93,8 @@ func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 		var shipment Shipment
 		err := rows.Scan(&shipment.ID, &shipment.TrackingNumber, &shipment.Carrier,
 			&shipment.Description, &shipment.Status, &shipment.CreatedAt,
-			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered)
+			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered,
+			&shipment.LastManualRefresh, &shipment.ManualRefreshCount)
 		if err != nil {
 			return nil, err
 		}
@@ -101,14 +107,15 @@ func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 // GetByID returns a shipment by ID
 func (s *ShipmentStore) GetByID(id int) (*Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
-			  created_at, updated_at, expected_delivery, is_delivered 
+			  created_at, updated_at, expected_delivery, is_delivered,
+			  last_manual_refresh, manual_refresh_count 
 			  FROM shipments WHERE id = ?`
 	
 	var shipment Shipment
 	err := s.db.QueryRow(query, id).Scan(&shipment.ID, &shipment.TrackingNumber,
 		&shipment.Carrier, &shipment.Description, &shipment.Status,
 		&shipment.CreatedAt, &shipment.UpdatedAt, &shipment.ExpectedDelivery,
-		&shipment.IsDelivered)
+		&shipment.IsDelivered, &shipment.LastManualRefresh, &shipment.ManualRefreshCount)
 	
 	if err != nil {
 		return nil, err
@@ -119,12 +126,12 @@ func (s *ShipmentStore) GetByID(id int) (*Shipment, error) {
 
 // Create creates a new shipment
 func (s *ShipmentStore) Create(shipment *Shipment) error {
-	query := `INSERT INTO shipments (tracking_number, carrier, description, status, expected_delivery, is_delivered) 
-			  VALUES (?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO shipments (tracking_number, carrier, description, status, expected_delivery, is_delivered, manual_refresh_count) 
+			  VALUES (?, ?, ?, ?, ?, ?, ?)`
 	
 	result, err := s.db.Exec(query, shipment.TrackingNumber, shipment.Carrier,
 		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
-		shipment.IsDelivered)
+		shipment.IsDelivered, shipment.ManualRefreshCount)
 	if err != nil {
 		return err
 	}
@@ -144,6 +151,8 @@ func (s *ShipmentStore) Create(shipment *Shipment) error {
 	
 	shipment.CreatedAt = created.CreatedAt
 	shipment.UpdatedAt = created.UpdatedAt
+	shipment.LastManualRefresh = created.LastManualRefresh
+	shipment.ManualRefreshCount = created.ManualRefreshCount
 	
 	return nil
 }
@@ -151,12 +160,13 @@ func (s *ShipmentStore) Create(shipment *Shipment) error {
 // Update updates an existing shipment
 func (s *ShipmentStore) Update(id int, shipment *Shipment) error {
 	query := `UPDATE shipments SET tracking_number = ?, carrier = ?, description = ?, 
-			  status = ?, expected_delivery = ?, is_delivered = ?, updated_at = CURRENT_TIMESTAMP 
+			  status = ?, expected_delivery = ?, is_delivered = ?, last_manual_refresh = ?, 
+			  manual_refresh_count = ?, updated_at = CURRENT_TIMESTAMP 
 			  WHERE id = ?`
 	
 	result, err := s.db.Exec(query, shipment.TrackingNumber, shipment.Carrier,
 		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
-		shipment.IsDelivered, id)
+		shipment.IsDelivered, shipment.LastManualRefresh, shipment.ManualRefreshCount, id)
 	
 	if err != nil {
 		return err
@@ -184,6 +194,31 @@ func (s *ShipmentStore) Update(id int, shipment *Shipment) error {
 // Delete deletes a shipment by ID
 func (s *ShipmentStore) Delete(id int) error {
 	query := `DELETE FROM shipments WHERE id = ?`
+	
+	result, err := s.db.Exec(query, id)
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
+}
+
+// UpdateRefreshTracking updates the last_manual_refresh timestamp and increments the count
+func (s *ShipmentStore) UpdateRefreshTracking(id int) error {
+	query := `UPDATE shipments SET 
+			  last_manual_refresh = CURRENT_TIMESTAMP,
+			  manual_refresh_count = manual_refresh_count + 1,
+			  updated_at = CURRENT_TIMESTAMP 
+			  WHERE id = ?`
 	
 	result, err := s.db.Exec(query, id)
 	if err != nil {

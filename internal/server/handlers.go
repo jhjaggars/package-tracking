@@ -72,6 +72,15 @@ func (hw *HandlerWrappers) GetShipmentEvents(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// RefreshShipment wraps the refresh shipment handler
+func (hw *HandlerWrappers) RefreshShipment(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	if _, ok := params["id"]; ok {
+		hw.shipmentHandler.RefreshShipment(w, r)
+	} else {
+		http.Error(w, "Missing shipment ID", http.StatusBadRequest)
+	}
+}
+
 // HealthCheck wraps the health check handler
 func (hw *HandlerWrappers) HealthCheck(w http.ResponseWriter, r *http.Request, params map[string]string) {
 	hw.healthHandler.HealthCheck(w, r)
@@ -91,6 +100,7 @@ func (hw *HandlerWrappers) RegisterRoutes(router *Router) {
 	router.PUT("/api/shipments/{id}", hw.UpdateShipment)
 	router.DELETE("/api/shipments/{id}", hw.DeleteShipment)
 	router.GET("/api/shipments/{id}/events", hw.GetShipmentEvents)
+	router.POST("/api/shipments/{id}/refresh", hw.RefreshShipment)
 
 	// Other routes
 	router.GET("/api/health", hw.HealthCheck)

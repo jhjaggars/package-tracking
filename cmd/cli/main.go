@@ -82,6 +82,19 @@ func main() {
 				ArgsUsage: "<shipment-id>",
 				Action:    getEvents,
 			},
+			{
+				Name:      "refresh",
+				Usage:     "Manually refresh tracking data for a shipment",
+				ArgsUsage: "<shipment-id>",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "verbose",
+						Aliases: []string{"v"},
+						Usage:   "Show detailed refresh information",
+					},
+				},
+				Action: refreshShipment,
+			},
 		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -315,4 +328,61 @@ func initializeClient(c *cli.Context) (*cliapi.Config, *cliapi.OutputFormatter, 
 	}
 
 	return config, formatter, client, nil
+}
+
+func refreshShipment(c *cli.Context) error {
+	config, formatter, client, err := initializeClient(c)
+	if err != nil {
+		return err
+	}
+
+	if c.NArg() != 1 {
+		return cli.ShowCommandHelp(c, "refresh")
+	}
+
+	id, err := validateAndParseID(c.Args().Get(0), formatter)
+	if err != nil {
+		return err
+	}
+
+	verbose := c.Bool("verbose")
+
+	if verbose {
+		formatter.PrintInfo("Refreshing tracking data...")
+	}
+
+	response, err := client.RefreshShipment(id)
+	if err != nil {
+		formatter.PrintError(err)
+		return err
+	}
+
+	if config.Quiet {
+		// In quiet mode, just show the events
+		return formatter.PrintEvents(response.Events)
+	} else {
+		// Show refresh details
+		if verbose {
+			formatter.PrintSuccess(fmt.Sprintf("Refresh completed successfully"))
+			formatter.PrintInfo(fmt.Sprintf("Shipment ID: %d", response.ShipmentID))
+			formatter.PrintInfo(fmt.Sprintf("Updated at: %s", response.UpdatedAt.Format("2006-01-02 15:04:05")))
+			formatter.PrintInfo(fmt.Sprintf("Events added: %d", response.EventsAdded))
+			formatter.PrintInfo(fmt.Sprintf("Total events: %d", response.TotalEvents))
+			
+			if response.EventsAdded > 0 {
+				formatter.PrintInfo("New tracking events:")
+			} else {
+				formatter.PrintInfo("No new tracking events found")
+			}
+		} else {
+			if response.EventsAdded > 0 {
+				formatter.PrintSuccess(fmt.Sprintf("Refresh successful - %d new events found", response.EventsAdded))
+			} else {
+				formatter.PrintSuccess("Refresh successful - no new events")
+			}
+		}
+
+		// Show all events
+		return formatter.PrintEvents(response.Events)
+	}
 }
