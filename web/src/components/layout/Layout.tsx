@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Package, BarChart3, Plus, List, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { motion } from 'framer-motion';
+import { ThemeToggle } from '../ui/ThemeToggle';
 
 interface LayoutProps {
   children: ReactNode;
@@ -18,10 +19,10 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      {/* Delightful Navigation */}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-blue-950 transition-colors duration-500">
+      {/* Modern Navigation */}
       <motion.nav 
-        className="bg-white/90 backdrop-blur-sm shadow-lg border-b border-white/20"
+        className="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-700/50"
         initial={{ y: -100 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.6, type: "spring", stiffness: 100 }}
@@ -111,6 +112,11 @@ export function Layout({ children }: LayoutProps) {
                   );
                 })}
               </div>
+            </div>
+            
+            {/* Theme Toggle */}
+            <div className="flex items-center">
+              <ThemeToggle />
             </div>
           </div>
         </div>
