@@ -1,9 +1,6 @@
-/* Import Design System */
+@import "tailwindcss";
+@config "../tailwind.config.js";
 @import './styles/design-system.css';
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 
 /* Base Styles */
 @layer base {
