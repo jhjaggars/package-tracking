@@ -46,6 +46,10 @@ cd package-tracking
 
 ### Alternative: Backend Only
 ```bash
+# Optional: Copy and customize configuration
+cp .env.example .env
+# Edit .env with your settings (optional)
+
 # Run just the Go backend server (creates database.db automatically)
 go run cmd/server/main.go
 
@@ -315,7 +319,21 @@ type TrackingEvent struct {
 
 ## ⚙️ Configuration
 
-Environment variables with sensible defaults:
+### Using .env Files
+
+For easier configuration management, you can create a `.env` file in the project root:
+
+```bash
+# Copy the example file and customize
+cp .env.example .env
+# Edit .env with your preferred settings
+```
+
+**Note**: Environment variables take precedence over `.env` file values, making it easy to override settings in different deployment environments.
+
+### Environment Variables
+
+Configuration via environment variables with sensible defaults:
 
 ```bash
 # Server configuration

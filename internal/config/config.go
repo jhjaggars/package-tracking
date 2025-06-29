@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,7 +36,10 @@ type Config struct {
 }
 
 // Load loads configuration from environment variables with defaults
+// If a .env file exists, it will be loaded first
 func Load() (*Config, error) {
+	// Try to load .env file if it exists
+	loadEnvFile(".env")
 	config := &Config{
 		// Server defaults
 		ServerPort: getEnvOrDefault("SERVER_PORT", "8080"),
@@ -158,4 +163,44 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+// loadEnvFile loads environment variables from a .env file if it exists
+func loadEnvFile(filename string) {
+	file, err := os.Open(filename)
+	if err != nil {
+		// .env file doesn't exist or can't be opened, which is fine
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		
+		// Split on first '=' character
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		
+		// Remove quotes if present
+		if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+		   (strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+			value = value[1 : len(value)-1]
+		}
+		
+		// Only set if not already set in environment
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
 }

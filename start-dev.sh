@@ -8,6 +8,13 @@ set -e
 echo "🚀 Starting Package Tracker Development Environment..."
 echo ""
 
+# Check for .env file and suggest creating one
+if [ ! -f ".env" ]; then
+    echo "💡 Tip: You can create a .env file for custom configuration:"
+    echo "   cp .env.example .env"
+    echo ""
+fi
+
 # Check if we're in the right directory
 if [ ! -f "go.mod" ] || [ ! -d "web" ]; then
     echo "❌ Error: Please run this script from the package-tracking root directory"

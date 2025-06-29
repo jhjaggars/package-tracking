@@ -102,7 +102,9 @@ REST API following `/api/` prefix:
 - Health: GET `/api/health`
 
 ### Environment Variables
-Configuration via environment variables with sensible defaults:
+Configuration via environment variables with sensible defaults.
+
+The server automatically loads variables from a `.env` file if present. Environment variables take precedence over `.env` file values:
 - `SERVER_PORT` (default: 8080)
 - `SERVER_HOST` (default: localhost)
 - `DB_PATH` (default: ./database.db)
