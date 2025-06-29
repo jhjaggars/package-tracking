@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Package, BarChart3, Plus, List } from 'lucide-react';
+import { Package, BarChart3, Plus, List, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { motion } from 'framer-motion';
 
 interface LayoutProps {
   children: ReactNode;
@@ -17,45 +18,103 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Delightful Navigation */}
+      <motion.nav 
+        className="bg-white/90 backdrop-blur-sm shadow-lg border-b border-white/20"
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.6, type: "spring", stiffness: 100 }}
+      >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex">
-              {/* Logo */}
-              <div className="flex-shrink-0 flex items-center">
-                <Package className="h-8 w-8 text-blue-600" />
-                <span className="ml-2 text-xl font-bold text-gray-900">
+              {/* Animated Logo */}
+              <motion.div 
+                className="flex-shrink-0 flex items-center"
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 300 }}
+              >
+                <motion.div
+                  animate={{ 
+                    rotate: [0, 10, -10, 0],
+                    scale: [1, 1.1, 1]
+                  }}
+                  transition={{ 
+                    duration: 3,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                >
+                  <Package className="h-8 w-8 text-blue-600" />
+                </motion.div>
+                <span className="ml-3 text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                   Package Tracker
                 </span>
-              </div>
+                <motion.div
+                  animate={{ 
+                    opacity: [0, 1, 0],
+                    scale: [0.8, 1.2, 0.8]
+                  }}
+                  transition={{ 
+                    duration: 2,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                  className="ml-2"
+                >
+                  <Sparkles className="h-4 w-4 text-yellow-500" />
+                </motion.div>
+              </motion.div>
               
-              {/* Navigation links */}
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                {navigation.map((item) => {
+              {/* Delightful Navigation links */}
+              <div className="hidden sm:ml-6 sm:flex sm:space-x-1">
+                {navigation.map((item, index) => {
                   const isActive = location.pathname === item.href;
                   return (
-                    <Link
+                    <motion.div
                       key={item.name}
-                      to={item.href}
-                      className={cn(
-                        'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium',
-                        isActive
-                          ? 'border-blue-600 text-blue-600'
-                          : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                      )}
+                      initial={{ opacity: 0, y: -20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 + 0.3 }}
                     >
-                      <item.icon className="mr-2 h-4 w-4" />
-                      {item.name}
-                    </Link>
+                      <motion.div
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Link
+                          to={item.href}
+                          className={cn(
+                            'inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 relative',
+                            isActive
+                              ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                              : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                          )}
+                        >
+                          <motion.div
+                            animate={isActive ? { scale: [1, 1.2, 1] } : {}}
+                            transition={{ duration: 0.5, repeat: isActive ? Infinity : 0, repeatDelay: 2 }}
+                          >
+                            <item.icon className="mr-2 h-4 w-4" />
+                          </motion.div>
+                          {item.name}
+                          {isActive && (
+                            <motion.div
+                              className="absolute -right-1 -top-1 w-2 h-2 bg-yellow-400 rounded-full"
+                              animate={{ scale: [1, 1.5, 1], opacity: [1, 0.5, 1] }}
+                              transition={{ duration: 1, repeat: Infinity }}
+                            />
+                          )}
+                        </Link>
+                      </motion.div>
+                    </motion.div>
                   );
                 })}
               </div>
             </div>
           </div>
         </div>
-      </nav>
+      </motion.nav>
 
       {/* Mobile navigation menu */}
       <div className="sm:hidden">
@@ -83,14 +142,25 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </div>
 
-      {/* Main content */}
-      <main className="flex-1">
-        <div className="py-6">
+      {/* Delightful Main content */}
+      <motion.main 
+        className="flex-1"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.8, duration: 0.6 }}
+      >
+        <div className="py-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            {children}
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 1, duration: 0.5 }}
+            >
+              {children}
+            </motion.div>
           </div>
         </div>
-      </main>
+      </motion.main>
     </div>
   );
 }
