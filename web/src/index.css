@@ -1,3 +1,59 @@
+/* Import Design System */
+@import './styles/design-system.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Base Styles */
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  
+  body {
+    @apply bg-[var(--bg-primary)] text-[var(--text-primary)] antialiased;
+    font-family: var(--font-primary);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold;
+    font-family: var(--font-display);
+  }
+  
+  /* Links */
+  a {
+    @apply transition-colors duration-200;
+  }
+  
+  /* Focus styles */
+  *:focus {
+    @apply outline-none;
+  }
+  
+  *:focus-visible {
+    @apply ring-2 ring-offset-2 ring-offset-[var(--bg-primary)] ring-[var(--color-primary)];
+  }
+}
+
+/* Component Styles */
+@layer components {
+  /* Glass Card */
+  .glass-card {
+    @apply bg-[var(--glass-background-solid)] backdrop-blur-md border border-[var(--glass-border)] rounded-xl shadow-glass;
+  }
+  
+  /* Gradient Button */
+  .btn-gradient {
+    @apply bg-gradient-primary text-white font-medium px-6 py-3 rounded-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200;
+  }
+  
+  /* Loading Skeleton */
+  .skeleton {
+    @apply animate-pulse bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700;
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+}
