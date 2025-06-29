@@ -274,8 +274,12 @@ func (p *SimpleBrowserPool) buildAllocatorOptions() []chromedp.ExecAllocatorOpti
 		opts = append(opts, chromedp.Headless)
 	}
 
-	// Disable images for performance
-	if p.options.DisableImages {
+	// Image loading control (stealth override)
+	disableImages := p.options.DisableImages
+	if p.options.StealthMode && p.options.LoadImages {
+		disableImages = false // Override for realism in stealth mode
+	}
+	if disableImages {
 		opts = append(opts, chromedp.Flag("blink-settings", "imagesEnabled=false"))
 	}
 
@@ -293,6 +297,43 @@ func (p *SimpleBrowserPool) buildAllocatorOptions() []chromedp.ExecAllocatorOpti
 		chromedp.Flag("disable-web-security", true),
 		chromedp.Flag("disable-features", "VizDisplayCompositor"),
 	)
+
+	// Anti-detection / Stealth mode options (conditional)
+	if p.options.StealthMode {
+		opts = append(opts,
+			// Remove automation signatures
+			chromedp.Flag("disable-blink-features", "AutomationControlled"),
+			chromedp.Flag("exclude-switches", "enable-automation"),
+			chromedp.Flag("disable-extensions-except", ""),
+			
+			// Remove webdriver traces
+			chromedp.Flag("disable-dev-shm-usage", true),
+			chromedp.Flag("disable-ipc-flooding-protection", true),
+			
+			// Realistic browser behavior flags
+			chromedp.Flag("disable-hang-monitor", true),
+			chromedp.Flag("disable-popup-blocking", true),
+			chromedp.Flag("disable-prompt-on-repost", true),
+			chromedp.Flag("disable-sync", true),
+			chromedp.Flag("metrics-recording-only", true),
+			chromedp.Flag("no-first-run", true),
+			chromedp.Flag("safebrowsing-disable-auto-update", true),
+			chromedp.Flag("password-store", "basic"),
+		)
+		
+		// Plugin control
+		if !p.options.EnablePlugins {
+			opts = append(opts, chromedp.Flag("disable-plugins-discovery", true))
+		}
+		
+		// WebGL control
+		if !p.options.EnableWebGL {
+			opts = append(opts, chromedp.Flag("disable-gpu", true))
+		} else {
+			// Enable GPU for more realistic fingerprint
+			opts = append(opts, chromedp.Flag("enable-gpu", true))
+		}
+	}
 
 	return opts
 }

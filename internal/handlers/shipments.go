@@ -19,6 +19,7 @@ import (
 
 // Config interface to avoid circular imports
 type Config interface {
+	GetDisableRateLimit() bool
 	// Add FedEx API configuration getters
 	GetFedExAPIKey() string
 	GetFedExSecretKey() string
@@ -285,8 +286,8 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check rate limiting - 5 minutes between refreshes
-	if shipment.LastManualRefresh != nil {
+	// Check rate limiting - 5 minutes between refreshes (unless disabled)
+	if !h.config.GetDisableRateLimit() && shipment.LastManualRefresh != nil {
 		timeSinceLastRefresh := time.Since(*shipment.LastManualRefresh)
 		if timeSinceLastRefresh < 5*time.Minute {
 			remainingTime := 5*time.Minute - timeSinceLastRefresh
@@ -295,24 +296,33 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Force fresh data collection (bypass API, prefer headless/scraping)
-	config := &carriers.CarrierConfig{
-		PreferredType: carriers.ClientTypeHeadless, // Try headless first
-		UseHeadless:   true,
-		UserAgent:     "Mozilla/5.0 (compatible; PackageTracker/1.0)",
+	// Create client for tracking - prefer API for FedEx, fallback to headless/scraping for others
+	var client carriers.Client
+	var clientType carriers.ClientType
+	
+	// Check if we have an existing config that includes API credentials
+	if shipment.Carrier == "fedex" && h.config.GetFedExAPIKey() != "" && h.config.GetFedExSecretKey() != "" {
+		// Use existing FedEx API configuration
+		client, clientType, err = h.factory.CreateClient(shipment.Carrier)
+	} else {
+		// Force fresh data collection (prefer headless/scraping)
+		config := &carriers.CarrierConfig{
+			PreferredType: carriers.ClientTypeHeadless, // Try headless first
+			UseHeadless:   true,
+			UserAgent:     "Mozilla/5.0 (compatible; PackageTracker/1.0)",
+		}
+		h.factory.SetCarrierConfig(shipment.Carrier, config)
+		client, clientType, err = h.factory.CreateClient(shipment.Carrier)
+		
+		// For non-FedEx carriers, ensure we're not using API for "fresh" data collection
+		if clientType == carriers.ClientTypeAPI && shipment.Carrier != "fedex" {
+			http.Error(w, "Fresh data collection client not available for this carrier", http.StatusServiceUnavailable)
+			return
+		}
 	}
-	h.factory.SetCarrierConfig(shipment.Carrier, config)
-
-	// Create client for fresh data collection
-	client, clientType, err := h.factory.CreateClient(shipment.Carrier)
+	
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create client for carrier %s: %v", shipment.Carrier, err), http.StatusServiceUnavailable)
-		return
-	}
-
-	// Ensure we're using fresh data collection (headless or scraping, not API)
-	if clientType == carriers.ClientTypeAPI {
-		http.Error(w, "Fresh data collection client not available for this carrier", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -323,8 +333,8 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Track the shipment using fresh data collection
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Track the shipment using fresh data collection (extended timeout for SPA sites)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	req := &carriers.TrackingRequest{
@@ -341,8 +351,22 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 				return
 			}
 		}
+		log.Printf("ERROR: Failed to fetch tracking data: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to fetch tracking data: %v", err), http.StatusBadGateway)
 		return
+	}
+
+	// Debug: Log the tracking response
+	log.Printf("DEBUG: Tracking response received - Results: %d, Errors: %d", len(resp.Results), len(resp.Errors))
+	if len(resp.Results) > 0 {
+		result := resp.Results[0]
+		log.Printf("DEBUG: TrackingInfo - Status: %s, Events: %d, LastUpdated: %v", result.Status, len(result.Events), result.LastUpdated)
+		for i, event := range result.Events {
+			log.Printf("DEBUG: Event %d - %v: %s at %s (%s)", i, event.Timestamp, event.Description, event.Location, event.Status)
+		}
+	}
+	for i, err := range resp.Errors {
+		log.Printf("DEBUG: Error %d - %s: %s (Code: %s)", i, err.Carrier, err.Message, err.Code)
 	}
 
 	// Process results
@@ -416,6 +440,10 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		TotalEvents: len(updatedEvents),
 		Events:      updatedEvents,
 	}
+
+	// Debug: Log the response details
+	responseJSON, _ := json.Marshal(response)
+	log.Printf("DEBUG: Response JSON (%d bytes): %s", len(responseJSON), string(responseJSON))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

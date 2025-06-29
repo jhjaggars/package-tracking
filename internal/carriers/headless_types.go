@@ -41,6 +41,19 @@ type HeadlessOptions struct {
 	DebugMode bool
 	// MaxDebugArtifactSize limits size of screenshots and page sources (in bytes)
 	MaxDebugArtifactSize int64
+	
+	// Stealth mode options
+	StealthMode bool
+	// EnablePlugins controls whether browser plugins are enabled
+	EnablePlugins bool
+	// LoadImages controls whether images are loaded (overrides DisableImages when true)
+	LoadImages bool
+	// EnableWebGL controls whether WebGL is enabled
+	EnableWebGL bool
+	// SimulateHumanBehavior adds random delays and mouse movements
+	SimulateHumanBehavior bool
+	// RandomizeTimezone uses random timezone instead of system timezone
+	RandomizeTimezone bool
 }
 
 // DefaultHeadlessOptions returns sensible defaults for headless browsing
@@ -50,11 +63,19 @@ func DefaultHeadlessOptions() *HeadlessOptions {
 		Timeout:              30 * time.Second,
 		WaitStrategy:         WaitForSelector,
 		DisableImages:        true,
-		UserAgent:            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		UserAgent:            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0", // Default to Firefox
 		ViewportWidth:        1920,
 		ViewportHeight:       1080,
 		DebugMode:            false,
 		MaxDebugArtifactSize: 5 * 1024 * 1024, // 5MB limit for debug artifacts
+		
+		// Stealth mode defaults
+		StealthMode:           true,
+		EnablePlugins:         false,
+		LoadImages:           false,
+		EnableWebGL:          false,
+		SimulateHumanBehavior: true,
+		RandomizeTimezone:     false,
 	}
 }
 

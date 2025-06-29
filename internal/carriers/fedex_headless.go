@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/chromedp/chromedp"
 )
 
 // FedExHeadlessClient implements headless browser tracking for FedEx
@@ -19,7 +21,16 @@ type FedExHeadlessClient struct {
 func NewFedExHeadlessClient() *FedExHeadlessClient {
 	options := DefaultHeadlessOptions()
 	options.WaitStrategy = WaitForSelector
-	options.Timeout = 45 * time.Second // FedEx can be slow to load
+	options.Timeout = 90 * time.Second // Extended timeout for Angular SPA loading
+	
+	// Use Firefox user agent since FedEx blocks Chrome
+	options.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+	
+	// Enable maximum stealth mode for FedEx bot detection
+	options.StealthMode = true
+	options.EnablePlugins = true
+	options.LoadImages = true
+	options.EnableWebGL = true
 
 	headlessClient := NewHeadlessScrapingClient("fedex", options.UserAgent, options)
 
@@ -109,7 +120,7 @@ func (c *FedExHeadlessClient) trackSingle(ctx context.Context, trackingNumber st
 	// Build tracking URL - Updated format for modern FedEx
 	trackURL := fmt.Sprintf("%s/wtrk/track/?tracknumbers=%s", c.baseURL, url.QueryEscape(trackingNumber))
 	
-	// Define selectors for FedEx tracking elements
+	// Define selectors for FedEx tracking elements (Angular SPA)
 	trackingSelectors := []string{
 		"[data-test-id='tracking-details']",           // Primary tracking container
 		".tracking-details",                           // Alternative container
@@ -119,15 +130,47 @@ func (c *FedExHeadlessClient) trackSingle(ctx context.Context, trackingNumber st
 		"[role='main'] .tracking",                     // Main tracking section
 		".shipment-progress",                          // Progress indicator
 		"app-tracking-timeline",                       // Angular component
+		"app-root",                                    // Angular root component
+		"[ng-if*='tracking']",                         // Angular conditional elements
+		".shipment-details",                           // Shipment container
+		"#tracking-results",                           // Results container
 	}
 	
-	// Navigate and wait for tracking data to load
+	// First navigate and wait for Angular to initialize
+	err := c.NavigateAndWaitForAngular(ctx, trackURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize Angular SPA: %w", err)
+	}
+	
+	// Then wait for tracking data to load
 	pageSource, err := c.NavigateAndWaitForTrackingData(ctx, trackURL, trackingSelectors)
 	if err != nil {
 		return nil, err
 	}
 	
-	// Check for "not found" or error messages in the rendered page
+	// Check for bot detection first (most common issue)
+	if c.isBotDetection(pageSource) {
+		return nil, &CarrierError{
+			Carrier:   "fedex",
+			Code:      "BOT_DETECTION",
+			Message:   "FedEx detected automated access. Try using Firefox browser or FedEx official API for " + trackingNumber,
+			Retryable: true,
+			RateLimit: false,
+		}
+	}
+	
+	// Check for server errors
+	if c.isServerError(pageSource) {
+		return nil, &CarrierError{
+			Carrier:   "fedex",
+			Code:      "SERVER_ERROR", 
+			Message:   "FedEx systems temporarily unavailable for " + trackingNumber,
+			Retryable: true,
+			RateLimit: false,
+		}
+	}
+	
+	// Check for legitimate "not found" errors
 	if c.isTrackingNotFound(pageSource) {
 		return nil, &CarrierError{
 			Carrier:   "fedex",
@@ -309,26 +352,60 @@ func (c *FedExHeadlessClient) createTrackingEvent(date, timeStr, status, locatio
 	}
 }
 
-// isTrackingNotFound checks for error messages in the rendered page
+// isTrackingNotFound checks for legitimate "not found" errors in the rendered page
 func (c *FedExHeadlessClient) isTrackingNotFound(html string) bool {
-	// Check for various "not found" patterns in FedEx HTML
+	// Check for legitimate "not found" patterns (actual tracking errors)
 	notFoundPatterns := []string{
 		"Tracking number not found",
 		"cannot locate",
 		"shipment details for this tracking number",
 		"check the number and try again",
-		"No tracking information available",
-		"not found",
-		"fedex-error",
-		"tracking not available",
 		"invalid tracking number",
-		"error-message",
 		"no results found",
 	}
 	
 	lowerHTML := strings.ToLower(html)
 	for _, pattern := range notFoundPatterns {
 		if strings.Contains(lowerHTML, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// isBotDetection checks for FedEx bot detection messages
+func (c *FedExHeadlessClient) isBotDetection(html string) bool {
+	// FedEx bot detection typically shows generic "unable to retrieve" messages
+	botDetectionPatterns := []string{
+		"unfortunately we are unable to retrieve your tracking results at this time",
+		"please try again later",
+		"unable to retrieve your tracking results",
+	}
+	
+	lowerHTML := strings.ToLower(html)
+	for _, pattern := range botDetectionPatterns {
+		if strings.Contains(lowerHTML, pattern) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// isServerError checks for legitimate FedEx server errors
+func (c *FedExHeadlessClient) isServerError(html string) bool {
+	// Server errors that are not bot detection
+	serverErrorPatterns := []string{
+		"service temporarily unavailable",
+		"system is currently unavailable", 
+		"maintenance mode",
+		"temporarily down for maintenance",
+	}
+	
+	lowerHTML := strings.ToLower(html)
+	for _, pattern := range serverErrorPatterns {
+		if strings.Contains(lowerHTML, pattern) {
 			return true
 		}
 	}
@@ -408,4 +485,152 @@ func (c *FedExHeadlessClient) extractTrackingEvents(html string) []TrackingEvent
 	}
 	
 	return events
+}
+
+// NavigateAndWaitForAngular navigates to FedEx page and waits for Angular SPA to initialize
+func (c *FedExHeadlessClient) NavigateAndWaitForAngular(ctx context.Context, url string) error {
+	return c.browserPool.ExecuteWithBrowser(ctx, func(browserCtx context.Context) error {
+		// Step 1: Navigate to the page
+		err := chromedp.Run(browserCtx, chromedp.Navigate(url))
+		if err != nil {
+			return fmt.Errorf("navigation failed: %w", err)
+		}
+
+		// Step 2: Wait for basic DOM to load
+		err = chromedp.Run(browserCtx, chromedp.WaitReady("body", chromedp.ByQuery))
+		if err != nil {
+			return fmt.Errorf("body not ready: %w", err)
+		}
+
+		// Step 3: Execute enhanced stealth script to bypass FedEx bot detection
+		err = chromedp.Run(browserCtx, chromedp.Evaluate(`
+			// Remove webdriver property (primary bot detection)
+			Object.defineProperty(navigator, 'webdriver', {
+				get: () => undefined,
+			});
+			
+			// Hide automation indicators
+			if (window.chrome) {
+				window.chrome.runtime = {};
+				// Remove automation-specific chrome properties
+				delete window.chrome.loadTimes;
+				delete window.chrome.csi;
+			}
+			
+			// Add realistic plugins to mimic real Firefox
+			Object.defineProperty(navigator, 'plugins', {
+				get: () => [
+					{
+						name: "PDF.js",
+						description: "Portable Document Format",
+						filename: "internal-pdf-viewer"
+					},
+					{
+						name: "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+						description: "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+						filename: "gmpopenh264"
+					}
+				],
+			});
+			
+			// Realistic mimeTypes
+			Object.defineProperty(navigator, 'mimeTypes', {
+				get: () => [
+					{
+						type: "application/pdf",
+						description: "Portable Document Format",
+						suffixes: "pdf"
+					}
+				],
+			});
+			
+			// Override languages to match Firefox
+			Object.defineProperty(navigator, 'languages', {
+				get: () => ['en-US', 'en'],
+			});
+			
+			// Override permissions API 
+			if (navigator.permissions && navigator.permissions.query) {
+				const originalQuery = navigator.permissions.query;
+				navigator.permissions.query = (parameters) => (
+					parameters.name === 'notifications' ?
+						Promise.resolve({ state: Notification.permission }) :
+						originalQuery(parameters)
+				);
+			}
+			
+			// Hide automation-controlled flag
+			if (navigator.connection) {
+				Object.defineProperty(navigator.connection, 'rtt', {
+					get: () => 50 + Math.floor(Math.random() * 50),
+				});
+			}
+			
+			// Console log to verify stealth mode
+			console.log("Enhanced FedEx stealth mode activated");
+		`, nil))
+		if err != nil {
+			// Non-critical error, continue
+			fmt.Printf("Warning: stealth script execution failed: %v\n", err)
+		}
+
+		// Step 4: Wait for Angular to initialize with timeout
+		err = chromedp.Run(browserCtx, chromedp.Poll(`
+			// Check if Angular is ready
+			if (window.angular) {
+				try {
+					var rootElement = document.querySelector('app-root') || document.body;
+					var scope = window.angular.element(rootElement).scope();
+					return scope && document.readyState === 'complete';
+				} catch (e) {
+					return false;
+				}
+			}
+			// Fallback: check if DOM is ready and page seems loaded
+			return document.readyState === 'complete' && 
+				   document.querySelector('app-root') !== null;
+		`, nil, chromedp.WithPollingTimeout(30*time.Second)))
+		
+		if err != nil {
+			// Try alternative Angular detection
+			err = chromedp.Run(browserCtx, chromedp.WaitVisible("app-root", chromedp.ByQuery))
+			if err != nil {
+				return fmt.Errorf("Angular app not ready: %w", err)
+			}
+		}
+
+		// Step 5: Wait for network to be idle (AJAX calls complete)
+		err = chromedp.Run(browserCtx, chromedp.Sleep(3*time.Second))
+		if err != nil {
+			return fmt.Errorf("network idle wait failed: %w", err)
+		}
+
+		// Step 6: Simulate human behavior
+		err = chromedp.Run(browserCtx, 
+			// Random scroll to trigger lazy loading
+			chromedp.Evaluate(`
+				window.scrollTo({
+					top: Math.floor(Math.random() * 300),
+					behavior: 'smooth'
+				});
+			`, nil),
+			chromedp.Sleep(1*time.Second),
+			
+			// Scroll back to top
+			chromedp.Evaluate(`
+				window.scrollTo({
+					top: 0,
+					behavior: 'smooth'
+				});
+			`, nil),
+			chromedp.Sleep(1*time.Second),
+		)
+		
+		if err != nil {
+			// Non-critical, continue
+			fmt.Printf("Warning: human behavior simulation failed: %v\n", err)
+		}
+
+		return nil
+	})
 }

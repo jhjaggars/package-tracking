@@ -21,7 +21,7 @@ type Client struct {
 
 // NewClient creates a new API client
 func NewClient(baseURL string) *Client {
-	return NewClientWithTimeout(baseURL, 30*time.Second)
+	return NewClientWithTimeout(baseURL, 180*time.Second) // Extended for SPA scraping (3 minutes)
 }
 
 // NewClientWithTimeout creates a new API client with specified timeout

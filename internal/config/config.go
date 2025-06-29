@@ -28,6 +28,9 @@ type Config struct {
 
 	// Logging
 	LogLevel string
+
+	// Development/testing flags
+	DisableRateLimit bool
 }
 
 // Load loads configuration from environment variables with defaults
@@ -52,6 +55,9 @@ func Load() (*Config, error) {
 
 		// Logging
 		LogLevel: getEnvOrDefault("LOG_LEVEL", "info"),
+
+		// Development/testing flags
+		DisableRateLimit: getEnvBoolOrDefault("DISABLE_RATE_LIMIT", false),
 	}
 
 	// Validate configuration
@@ -115,6 +121,11 @@ func (c *Config) GetFedExSecretKey() string {
 	return c.FedExSecretKey
 }
 
+// GetDisableRateLimit returns the rate limit disable flag
+func (c *Config) GetDisableRateLimit() bool {
+	return c.DisableRateLimit
+}
+
 // getEnvOrDefault returns environment variable value or default
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
@@ -137,4 +148,14 @@ func getEnvDurationOrDefault(key string, defaultValue string) time.Duration {
 		return time.Hour // Fallback to 1 hour
 	}
 	return duration
+}
+
+// getEnvBoolOrDefault returns environment variable as boolean or default
+func getEnvBoolOrDefault(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
 }

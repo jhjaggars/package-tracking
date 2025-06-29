@@ -9,6 +9,11 @@ import (
 
 // TestConfig implements the Config interface for testing
 type TestConfig struct {
+	DisableRateLimit bool
+}
+
+func (tc *TestConfig) GetDisableRateLimit() bool {
+	return tc.DisableRateLimit
 }
 
 func (tc *TestConfig) GetFedExAPIKey() string {
@@ -30,7 +35,7 @@ type HandlerWrappers struct {
 // NewHandlerWrappers creates new handler wrappers
 func NewHandlerWrappers(db *database.DB) *HandlerWrappers {
 	// Use default test config for backward compatibility
-	config := &TestConfig{}
+	config := &TestConfig{DisableRateLimit: false}
 	return &HandlerWrappers{
 		shipmentHandler: handlers.NewShipmentHandler(db, config),
 		healthHandler:   handlers.NewHealthHandler(db),

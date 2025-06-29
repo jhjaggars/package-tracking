@@ -25,7 +25,7 @@ func DefaultConfig() *Config {
 		ServerURL:      "http://localhost:8080",
 		Format:         "table",
 		Quiet:          false,
-		RequestTimeout: 30 * time.Second,
+		RequestTimeout: 180 * time.Second, // Extended for SPA scraping (3 minutes)
 	}
 }
 
