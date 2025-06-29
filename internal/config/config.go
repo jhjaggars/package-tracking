@@ -20,10 +20,11 @@ type Config struct {
 	UpdateInterval time.Duration
 
 	// Carrier API keys
-	USPSAPIKey  string
-	UPSAPIKey   string
-	FedExAPIKey string
-	DHLAPIKey   string
+	USPSAPIKey     string
+	UPSAPIKey      string
+	FedExAPIKey    string
+	FedExSecretKey string
+	DHLAPIKey      string
 
 	// Logging
 	LogLevel string
@@ -43,10 +44,11 @@ func Load() (*Config, error) {
 		UpdateInterval: getEnvDurationOrDefault("UPDATE_INTERVAL", "1h"),
 
 		// API keys (optional)
-		USPSAPIKey:  os.Getenv("USPS_API_KEY"),
-		UPSAPIKey:   os.Getenv("UPS_API_KEY"),
-		FedExAPIKey: os.Getenv("FEDEX_API_KEY"),
-		DHLAPIKey:   os.Getenv("DHL_API_KEY"),
+		USPSAPIKey:     os.Getenv("USPS_API_KEY"),
+		UPSAPIKey:      os.Getenv("UPS_API_KEY"),
+		FedExAPIKey:    os.Getenv("FEDEX_API_KEY"),
+		FedExSecretKey: os.Getenv("FEDEX_SECRET_KEY"),
+		DHLAPIKey:      os.Getenv("DHL_API_KEY"),
 
 		// Logging
 		LogLevel: getEnvOrDefault("LOG_LEVEL", "info"),
@@ -101,6 +103,16 @@ func (c *Config) validate() error {
 // Address returns the full server address
 func (c *Config) Address() string {
 	return c.ServerHost + ":" + c.ServerPort
+}
+
+// GetFedExAPIKey returns the FedEx API key
+func (c *Config) GetFedExAPIKey() string {
+	return c.FedExAPIKey
+}
+
+// GetFedExSecretKey returns the FedEx secret key  
+func (c *Config) GetFedExSecretKey() string {
+	return c.FedExSecretKey
 }
 
 // getEnvOrDefault returns environment variable value or default

@@ -330,7 +330,8 @@ LOG_LEVEL=info               # Logging level (debug, info, warn, error)
 # Carrier API keys (optional - system works without them!)
 USPS_API_KEY=your_key          # Falls back to web scraping if not provided
 UPS_API_KEY=your_key           # Falls back to web scraping if not provided  
-FEDEX_API_KEY=your_key         # Falls back to web scraping if not provided
+FEDEX_API_KEY=your_key         # FedEx OAuth Client ID
+FEDEX_SECRET_KEY=your_secret   # FedEx OAuth Client Secret (required with API key)
 DHL_API_KEY=your_key           # Falls back to web scraping if not provided
 ```
 

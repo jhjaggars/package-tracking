@@ -105,7 +105,10 @@ func (f *ClientFactory) createAPIClient(carrier string, config *CarrierConfig) (
 		if config.ClientID == "" || config.ClientSecret == "" {
 			return nil, fmt.Errorf("FedEx Client ID/Secret not configured")
 		}
-		return NewFedExClient(config.ClientID, config.ClientSecret, config.UseSandbox), nil
+		if config.UseSandbox {
+			return NewFedExAPISandboxClient(config.ClientID, config.ClientSecret), nil
+		}
+		return NewFedExAPIClient(config.ClientID, config.ClientSecret), nil
 		
 	case "dhl":
 		if config.APIKey == "" {

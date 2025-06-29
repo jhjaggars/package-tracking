@@ -17,17 +17,39 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// Config interface to avoid circular imports
+type Config interface {
+	// Add FedEx API configuration getters
+	GetFedExAPIKey() string
+	GetFedExSecretKey() string
+}
+
 // ShipmentHandler handles HTTP requests for shipments
 type ShipmentHandler struct {
 	db      *database.DB
 	factory *carriers.ClientFactory
+	config  Config
 }
 
 // NewShipmentHandler creates a new shipment handler
-func NewShipmentHandler(db *database.DB) *ShipmentHandler {
+func NewShipmentHandler(db *database.DB, config Config) *ShipmentHandler {
+	factory := carriers.NewClientFactory()
+	
+	// Configure FedEx API if credentials are available
+	if config.GetFedExAPIKey() != "" && config.GetFedExSecretKey() != "" {
+		fedexConfig := &carriers.CarrierConfig{
+			ClientID:      config.GetFedExAPIKey(),
+			ClientSecret:  config.GetFedExSecretKey(),
+			PreferredType: carriers.ClientTypeAPI,
+			UseSandbox:    false,
+		}
+		factory.SetCarrierConfig("fedex", fedexConfig)
+	}
+	
 	return &ShipmentHandler{
 		db:      db,
-		factory: carriers.NewClientFactory(),
+		factory: factory,
+		config:  config,
 	}
 }
 

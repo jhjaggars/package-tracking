@@ -107,7 +107,7 @@ Configuration via environment variables with sensible defaults:
 - `SERVER_HOST` (default: localhost)
 - `DB_PATH` (default: ./database.db)
 - `UPDATE_INTERVAL` (default: 1h)
-- `USPS_API_KEY`, `UPS_API_KEY`, `FEDEX_API_KEY`, `DHL_API_KEY` (optional)
+- `USPS_API_KEY`, `UPS_API_KEY`, `FEDEX_API_KEY`, `FEDEX_SECRET_KEY`, `DHL_API_KEY` (optional)
 - `LOG_LEVEL` (default: info)
 
 #### CLI Configuration

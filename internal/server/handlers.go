@@ -7,6 +7,18 @@ import (
 	"package-tracking/internal/handlers"
 )
 
+// TestConfig implements the Config interface for testing
+type TestConfig struct {
+}
+
+func (tc *TestConfig) GetFedExAPIKey() string {
+	return ""
+}
+
+func (tc *TestConfig) GetFedExSecretKey() string {
+	return ""
+}
+
 // HandlerWrappers adapts our existing handlers to work with the router
 type HandlerWrappers struct {
 	shipmentHandler *handlers.ShipmentHandler
@@ -17,8 +29,10 @@ type HandlerWrappers struct {
 
 // NewHandlerWrappers creates new handler wrappers
 func NewHandlerWrappers(db *database.DB) *HandlerWrappers {
+	// Use default test config for backward compatibility
+	config := &TestConfig{}
 	return &HandlerWrappers{
-		shipmentHandler: handlers.NewShipmentHandler(db),
+		shipmentHandler: handlers.NewShipmentHandler(db, config),
 		healthHandler:   handlers.NewHealthHandler(db),
 		carrierHandler:  handlers.NewCarrierHandler(db),
 		staticHandler:   handlers.NewStaticHandler(nil), // Use filesystem fallback
