@@ -109,7 +109,7 @@ The server automatically loads variables from a `.env` file if present. Environm
 - `SERVER_HOST` (default: localhost)
 - `DB_PATH` (default: ./database.db)
 - `UPDATE_INTERVAL` (default: 1h)
-- `USPS_API_KEY`, `UPS_API_KEY`, `FEDEX_API_KEY`, `FEDEX_SECRET_KEY`, `DHL_API_KEY` (optional)
+- `USPS_API_KEY`, `UPS_API_KEY`, `FEDEX_API_KEY`, `FEDEX_SECRET_KEY`, `FEDEX_API_URL`, `DHL_API_KEY` (optional)
 - `LOG_LEVEL` (default: info)
 
 #### CLI Configuration
@@ -141,6 +141,15 @@ CLI also supports a configuration file at `~/.package-tracker.json`:
 
 ## Development Workflow
 - Use the start-dev.sh script while working on the project
+
+## Carrier Integration Notes
+
+### FedEx API vs Scraping
+- **API Preferred**: When `FEDEX_API_KEY` and `FEDEX_SECRET_KEY` are configured, the system automatically uses the official FedEx Track API
+- **Configurable Endpoint**: Use `FEDEX_API_URL` to specify production (apis.fedex.com) or sandbox (apis-sandbox.fedex.com) endpoints
+- **Scraping Fallback**: Without API credentials, the system uses enhanced headless browser scraping with bot detection avoidance
+- **Error Handling**: Enhanced detection distinguishes between bot detection, server errors, and legitimate tracking failures
+- **Performance**: API calls complete in ~2 seconds vs ~96 seconds for scraping
 
 ## Future Plans
 This is Phase 1 of a larger system. Future phases will add:
