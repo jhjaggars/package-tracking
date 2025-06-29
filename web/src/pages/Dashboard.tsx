@@ -34,12 +34,15 @@ function StatCard({
     }
     
     if (!loading && numericValue > 0) {
-      const timer = setTimeout(() => {
+      let timer: NodeJS.Timeout;
+      let counter: NodeJS.Timeout;
+      
+      timer = setTimeout(() => {
         let start = 0;
         const duration = 1000;
         const increment = numericValue / (duration / 16);
         
-        const counter = setInterval(() => {
+        counter = setInterval(() => {
           start += increment;
           if (start >= numericValue) {
             setAnimatedValue(numericValue);
@@ -48,11 +51,15 @@ function StatCard({
             setAnimatedValue(Math.floor(start));
           }
         }, 16);
-        
-        return () => clearInterval(counter);
       }, delay);
       
-      return () => clearTimeout(timer);
+      // Proper cleanup for both timer and counter
+      return () => {
+        clearTimeout(timer);
+        if (counter) {
+          clearInterval(counter);
+        }
+      };
     }
   }, [loading, numericValue, delay]);
 

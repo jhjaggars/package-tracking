@@ -113,8 +113,9 @@
   --ring: 262 83% 58%;
 }
 
-/* Dark Mode */
-[data-theme="dark"] {
+/* Dark Mode - Consolidated selectors */
+[data-theme="dark"],
+.dark {
   /* Dark Mode Colors - Much Brighter Text */
   --bg-primary: #0f0f0f;
   --bg-secondary: #1a1a1a;
@@ -124,30 +125,6 @@
   --text-tertiary: #e2e8f0;       /* Bright gray */
   --border-color: #2d3748;
 
-  /* Dark Mode Semantic Color Variables for Tailwind */
-  --background: 224 71% 4%;
-  --foreground: 0 0% 98%;          /* Very bright white */
-  --card: 224 71% 4%;
-  --card-foreground: 0 0% 98%;     /* Very bright white for card text */
-  --popover: 224 71% 4%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 262 83% 58%;
-  --primary-foreground: 210 20% 98%;
-  --secondary: 215 28% 17%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 215 28% 17%;
-  --muted-foreground: 0 0% 95%;    /* Very bright gray for muted text */
-  --accent: 215 28% 17%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 62% 30%;
-  --destructive-foreground: 0 85% 97%;
-  --border: 215 28% 17%;
-  --input: 215 28% 17%;
-  --ring: 262 83% 58%;
-}
-
-/* Dark Mode with .dark class (for Tailwind compatibility) */
-.dark {
   /* Dark Mode Semantic Color Variables for Tailwind */
   --background: 224 71% 4%;
   --foreground: 0 0% 98%;          /* Very bright white */
@@ -257,96 +234,96 @@
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
 }
 
-/* Dark Mode Text Overrides - Much More Aggressive */
+/* Dark Mode Text Overrides - Consolidated */
 [data-theme="dark"] .text-gray-600,
-.dark .text-gray-600,
 [data-theme="dark"] .text-gray-500,
-.dark .text-gray-500,
 [data-theme="dark"] .text-gray-700,
-.dark .text-gray-700,
 [data-theme="dark"] .text-gray-400,
-.dark .text-gray-400,
 [data-theme="dark"] .text-gray-800,
-.dark .text-gray-800,
 [data-theme="dark"] .text-gray-900,
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-gray-700,
+.dark .text-gray-400,
+.dark .text-gray-800,
 .dark .text-gray-900 {
   color: #f7fafc !important; /* Very bright white for maximum contrast */
 }
 
-/* Even more aggressive - target any grayish text */
+/* Slate color overrides - Consolidated */
 [data-theme="dark"] .text-slate-600,
-.dark .text-slate-600,
 [data-theme="dark"] .text-slate-500,
-.dark .text-slate-500,
 [data-theme="dark"] .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500,
 .dark .text-slate-700 {
   color: #f1f5f9 !important; /* Bright gray for dark mode */
 }
 
-/* Fix buttons with light backgrounds - force dark text */
+/* Fix buttons with light backgrounds - Consolidated */
 [data-theme="dark"] button[class*="bg-white"],
-.dark button[class*="bg-white"],
 [data-theme="dark"] button[class*="bg-gray"],
-.dark button[class*="bg-gray"],
 [data-theme="dark"] .bg-white,
-.dark .bg-white,
 [data-theme="dark"] .bg-gray-50,
-.dark .bg-gray-50,
 [data-theme="dark"] .bg-gray-100,
+.dark button[class*="bg-white"],
+.dark button[class*="bg-gray"],
+.dark .bg-white,
+.dark .bg-gray-50,
 .dark .bg-gray-100 {
   color: #1a202c !important; /* Dark text for light button backgrounds */
 }
 
-/* Override button text specifically */
+/* Override button text specifically - Consolidated */
 [data-theme="dark"] button[class*="bg-white"] *,
-.dark button[class*="bg-white"] *,
 [data-theme="dark"] button[class*="bg-gray"] *,
+.dark button[class*="bg-white"] *,
 .dark button[class*="bg-gray"] * {
   color: #1a202c !important; /* Dark text inside light buttons */
 }
 
-/* Fix Form Elements in Dark Mode */
+/* Fix Form Elements in Dark Mode - Consolidated */
 [data-theme="dark"] input,
-.dark input,
 [data-theme="dark"] textarea,
-.dark textarea,
 [data-theme="dark"] select,
+.dark input,
+.dark textarea,
 .dark select {
   background-color: #2d3748 !important; /* Dark background for inputs */
   color: #f7fafc !important; /* Light text for inputs */
   border-color: #4a5568 !important; /* Darker border */
 }
 
-/* Fix placeholder text in dark mode */
+/* Fix placeholder text in dark mode - Consolidated */
 [data-theme="dark"] input::placeholder,
-.dark input::placeholder,
 [data-theme="dark"] textarea::placeholder,
+.dark input::placeholder,
 .dark textarea::placeholder {
   color: #a0aec0 !important; /* Light gray placeholder text */
   opacity: 1; /* Ensure full opacity */
 }
 
-/* Fix dropdown/select elements */
+/* Fix dropdown/select elements - Consolidated */
 [data-theme="dark"] select option,
 .dark select option {
   background-color: #2d3748 !important;
   color: #f7fafc !important;
 }
 
-/* Fix form labels */
+/* Fix form labels - Consolidated */
 [data-theme="dark"] label,
-.dark label,
 [data-theme="dark"] .form-label,
+.dark label,
 .dark .form-label {
   color: #f7fafc !important; /* Light text for labels */
 }
 
-/* Fix input focus states */
+/* Fix input focus states - Consolidated */
 [data-theme="dark"] input:focus,
-.dark input:focus,
 [data-theme="dark"] textarea:focus,
-.dark textarea:focus,
 [data-theme="dark"] select:focus,
+.dark input:focus,
+.dark textarea:focus,
 .dark select:focus {
   background-color: #2d3748 !important;
   color: #ffffff !important; /* Pure white when focused */
