@@ -35,3 +35,8 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
     disconnect: vi.fn(),
   })),
 });
+
+// Mock canvas-confetti to avoid canvas issues in tests
+vi.mock('canvas-confetti', () => ({
+  default: vi.fn(),
+}));

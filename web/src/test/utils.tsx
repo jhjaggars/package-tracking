@@ -3,6 +3,7 @@ import { render } from '@testing-library/react';
 import type { RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
+import { ThemeProvider } from '../contexts/ThemeContext';
 import type { Shipment, TrackingEvent, Carrier } from '../types/api';
 
 // Create a custom render function that includes providers
@@ -38,11 +39,13 @@ export function renderWithProviders(
     }
 
     return (
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          {children}
-        </BrowserRouter>
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            {children}
+          </BrowserRouter>
+        </QueryClientProvider>
+      </ThemeProvider>
     );
   }
 
@@ -68,6 +71,7 @@ export const mockShipment: Shipment = {
 export const mockDeliveredShipment: Shipment = {
   ...mockShipment,
   id: 2,
+  tracking_number: '1Z999BB1234567890',
   status: 'delivered',
   is_delivered: true,
   description: 'Delivered Package',
@@ -97,6 +101,7 @@ export const mockShipments: Shipment[] = [
   {
     ...mockShipment,
     id: 3,
+    tracking_number: '1Z999CC1234567890',
     carrier: 'fedex',
     status: 'pending',
     description: 'FedEx Package',

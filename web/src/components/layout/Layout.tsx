@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Package, BarChart3, Plus, List } from 'lucide-react';
+import { Package, BarChart3, Plus, List, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { ThemeToggle } from '../ui/ThemeToggle';
 
 interface LayoutProps {
   children: ReactNode;
@@ -17,22 +18,23 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-blue-950">
+      {/* Modern Navigation */}
+      <nav className="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-700/50">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex">
               {/* Logo */}
               <div className="flex-shrink-0 flex items-center">
                 <Package className="h-8 w-8 text-blue-600" />
-                <span className="ml-2 text-xl font-bold text-gray-900">
+                <span className="ml-3 text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                   Package Tracker
                 </span>
+                <Sparkles className="ml-2 h-4 w-4 text-yellow-500" />
               </div>
               
               {/* Navigation links */}
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
+              <div className="hidden sm:ml-6 sm:flex sm:space-x-1">
                 {navigation.map((item) => {
                   const isActive = location.pathname === item.href;
                   return (
@@ -40,18 +42,26 @@ export function Layout({ children }: LayoutProps) {
                       key={item.name}
                       to={item.href}
                       className={cn(
-                        'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium',
+                        'inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium relative',
                         isActive
-                          ? 'border-blue-600 text-blue-600'
-                          : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                          ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                          : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
                       )}
                     >
                       <item.icon className="mr-2 h-4 w-4" />
                       {item.name}
+                      {isActive && (
+                        <div className="absolute -right-1 -top-1 w-2 h-2 bg-yellow-400 rounded-full" />
+                      )}
                     </Link>
                   );
                 })}
               </div>
+            </div>
+            
+            {/* Theme Toggle */}
+            <div className="flex items-center">
+              <ThemeToggle />
             </div>
           </div>
         </div>
@@ -85,7 +95,7 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main content */}
       <main className="flex-1">
-        <div className="py-6">
+        <div className="py-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             {children}
           </div>

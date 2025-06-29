@@ -4,6 +4,7 @@ import { Suspense, lazy } from 'react';
 import { Layout } from './components/layout/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 // Lazy load page components for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard').then(module => ({ default: module.Dashboard })));
@@ -24,37 +25,39 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Layout>
-          <Suspense fallback={<LoadingSpinner />}>
-            <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={
-                <ErrorBoundary>
-                  <Dashboard />
-                </ErrorBoundary>
-              } />
-              <Route path="/shipments" element={
-                <ErrorBoundary>
-                  <ShipmentList />
-                </ErrorBoundary>
-              } />
-              <Route path="/shipments/new" element={
-                <ErrorBoundary>
-                  <AddShipment />
-                </ErrorBoundary>
-              } />
-              <Route path="/shipments/:id" element={
-                <ErrorBoundary>
-                  <ShipmentDetail />
-                </ErrorBoundary>
-              } />
-            </Routes>
-          </Suspense>
-        </Layout>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Layout>
+            <Suspense fallback={<LoadingSpinner />}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={
+                  <ErrorBoundary>
+                    <Dashboard />
+                  </ErrorBoundary>
+                } />
+                <Route path="/shipments" element={
+                  <ErrorBoundary>
+                    <ShipmentList />
+                  </ErrorBoundary>
+                } />
+                <Route path="/shipments/new" element={
+                  <ErrorBoundary>
+                    <AddShipment />
+                  </ErrorBoundary>
+                } />
+                <Route path="/shipments/:id" element={
+                  <ErrorBoundary>
+                    <ShipmentDetail />
+                  </ErrorBoundary>
+                } />
+              </Routes>
+            </Suspense>
+          </Layout>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 
