@@ -65,7 +65,7 @@ func main() {
 	var staticFS fs.FS = nil
 
 	// Create handlers
-	shipmentHandler := handlers.NewShipmentHandler(db)
+	shipmentHandler := handlers.NewShipmentHandler(db, cfg)
 	healthHandler := handlers.NewHealthHandler(db)
 	carrierHandler := handlers.NewCarrierHandler(db)
 	dashboardHandler := handlers.NewDashboardHandler(db)
