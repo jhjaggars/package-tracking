@@ -26,6 +26,7 @@ type Config struct {
 	UPSAPIKey      string
 	FedExAPIKey    string
 	FedExSecretKey string
+	FedExAPIURL    string
 	DHLAPIKey      string
 
 	// Logging
@@ -56,6 +57,7 @@ func Load() (*Config, error) {
 		UPSAPIKey:      os.Getenv("UPS_API_KEY"),
 		FedExAPIKey:    os.Getenv("FEDEX_API_KEY"),
 		FedExSecretKey: os.Getenv("FEDEX_SECRET_KEY"),
+		FedExAPIURL:    getEnvOrDefault("FEDEX_API_URL", "https://apis.fedex.com"),
 		DHLAPIKey:      os.Getenv("DHL_API_KEY"),
 
 		// Logging
@@ -124,6 +126,11 @@ func (c *Config) GetFedExAPIKey() string {
 // GetFedExSecretKey returns the FedEx secret key  
 func (c *Config) GetFedExSecretKey() string {
 	return c.FedExSecretKey
+}
+
+// GetFedExAPIURL returns the FedEx API URL
+func (c *Config) GetFedExAPIURL() string {
+	return c.FedExAPIURL
 }
 
 // GetDisableRateLimit returns the rate limit disable flag

@@ -41,6 +41,16 @@ func NewFedExAPISandboxClient(apiKey, secretKey string) *FedExAPIClient {
 	}
 }
 
+// NewFedExAPIClientWithURL creates a new FedEx API client with custom base URL
+func NewFedExAPIClientWithURL(apiKey, secretKey, baseURL string) *FedExAPIClient {
+	return &FedExAPIClient{
+		apiKey:    apiKey,
+		secretKey: secretKey,
+		baseURL:   baseURL,
+		client:    &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
 // FedExTrackRequest represents the request structure for FedEx Track API
 type FedExTrackRequest struct {
 	TrackingInfo []FedExTrackingInfo `json:"trackingInfo"`
@@ -359,18 +369,11 @@ func (c *FedExAPIClient) getAccessToken(ctx context.Context) error {
 	// Request new token
 	tokenURL := c.baseURL + "/oauth/token"
 	
-	requestBody := FedExOAuthRequest{
-		GrantType:    "client_credentials",
-		ClientID:     c.apiKey,
-		ClientSecret: c.secretKey,
-	}
+	// FedEx OAuth expects application/x-www-form-urlencoded format
+	formData := fmt.Sprintf("grant_type=client_credentials&client_id=%s&client_secret=%s",
+		c.apiKey, c.secretKey)
 	
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal token request: %w", err)
-	}
-	
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(formData))
 	if err != nil {
 		return fmt.Errorf("failed to create token request: %w", err)
 	}

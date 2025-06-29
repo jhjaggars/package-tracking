@@ -23,6 +23,7 @@ type Config interface {
 	// Add FedEx API configuration getters
 	GetFedExAPIKey() string
 	GetFedExSecretKey() string
+	GetFedExAPIURL() string
 }
 
 // ShipmentHandler handles HTTP requests for shipments
@@ -41,8 +42,9 @@ func NewShipmentHandler(db *database.DB, config Config) *ShipmentHandler {
 		fedexConfig := &carriers.CarrierConfig{
 			ClientID:      config.GetFedExAPIKey(),
 			ClientSecret:  config.GetFedExSecretKey(),
+			BaseURL:       config.GetFedExAPIURL(),
 			PreferredType: carriers.ClientTypeAPI,
-			UseSandbox:    false,
+			UseSandbox:    false, // Use BaseURL for endpoint selection
 		}
 		factory.SetCarrierConfig("fedex", fedexConfig)
 	}

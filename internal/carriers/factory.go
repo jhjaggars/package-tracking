@@ -22,6 +22,9 @@ type CarrierConfig struct {
 	ClientSecret string
 	UserID       string
 	
+	// API configuration
+	BaseURL      string
+	
 	// Scraping configuration
 	UserAgent    string
 	UseSandbox   bool
@@ -104,6 +107,9 @@ func (f *ClientFactory) createAPIClient(carrier string, config *CarrierConfig) (
 	case "fedex":
 		if config.ClientID == "" || config.ClientSecret == "" {
 			return nil, fmt.Errorf("FedEx Client ID/Secret not configured")
+		}
+		if config.BaseURL != "" {
+			return NewFedExAPIClientWithURL(config.ClientID, config.ClientSecret, config.BaseURL), nil
 		}
 		if config.UseSandbox {
 			return NewFedExAPISandboxClient(config.ClientID, config.ClientSecret), nil

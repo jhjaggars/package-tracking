@@ -24,6 +24,10 @@ func (tc *TestConfig) GetFedExSecretKey() string {
 	return ""
 }
 
+func (tc *TestConfig) GetFedExAPIURL() string {
+	return "https://apis.fedex.com"
+}
+
 // HandlerWrappers adapts our existing handlers to work with the router
 type HandlerWrappers struct {
 	shipmentHandler *handlers.ShipmentHandler
