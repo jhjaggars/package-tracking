@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 
@@ -55,26 +54,20 @@ export function NeoButton({
   disabled = false 
 }: NeoButtonProps) {
   return (
-    <motion.button
+    <button
       onClick={onClick}
       disabled={disabled}
-      whileTap={{ scale: 0.98 }}
-      whileHover={{ scale: 1.02 }}
-      transition={{ type: "spring", stiffness: 400, damping: 10 }}
       className={cn(
-        'relative overflow-hidden border-0 font-medium transition-all duration-300',
+        'relative overflow-hidden border-0 font-medium',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         variants[variant],
         sizes[size],
         className
       )}
     >
-      {/* Shine effect */}
-      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-      
       <span className="relative z-10 flex items-center justify-center gap-2">
         {children}
       </span>
-    </motion.button>
+    </button>
   );
 }

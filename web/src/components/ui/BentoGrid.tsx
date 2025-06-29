@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import type { ReactNode } from 'react';
 
 interface BentoCardProps {
@@ -28,16 +27,12 @@ export function BentoCard({
   gradient = 'blue'
 }: BentoCardProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -2, scale: 1.01 }}
-      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+    <div
       className={`
         ${sizeClasses[size]}
         ${gradientClasses[gradient]}
         relative overflow-hidden rounded-2xl border backdrop-blur-sm
-        p-6 shadow-lg hover:shadow-xl transition-all duration-300
+        p-6 shadow-lg hover:shadow-xl
         ${className}
       `}
     >
@@ -48,7 +43,7 @@ export function BentoCard({
       <div className="relative z-10">
         {children}
       </div>
-    </motion.div>
+    </div>
   );
 }
 

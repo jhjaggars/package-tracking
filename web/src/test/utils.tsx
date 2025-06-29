@@ -68,6 +68,7 @@ export const mockShipment: Shipment = {
 export const mockDeliveredShipment: Shipment = {
   ...mockShipment,
   id: 2,
+  tracking_number: '1Z999BB1234567890',
   status: 'delivered',
   is_delivered: true,
   description: 'Delivered Package',
@@ -97,6 +98,7 @@ export const mockShipments: Shipment[] = [
   {
     ...mockShipment,
     id: 3,
+    tracking_number: '1Z999CC1234567890',
     carrier: 'fedex',
     status: 'pending',
     description: 'FedEx Package',

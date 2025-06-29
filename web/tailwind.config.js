@@ -57,36 +57,6 @@ export default {
         'glass': 'var(--glass-shadow)',
         'glow': 'var(--shadow-glow)',
       },
-      animation: {
-        'fadeIn': 'fadeIn 300ms ease',
-        'slideUp': 'slideUp 500ms cubic-bezier(0.68, -0.55, 0.265, 1.55)',
-        'slideDown': 'slideDown 500ms cubic-bezier(0.68, -0.55, 0.265, 1.55)',
-        'scaleIn': 'scaleIn 500ms cubic-bezier(0.68, -0.55, 0.265, 1.55)',
-        'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'shimmer': 'shimmer 2s linear infinite',
-      },
-      keyframes: {
-        fadeIn: {
-          'from': { opacity: '0' },
-          'to': { opacity: '1' },
-        },
-        slideUp: {
-          'from': { opacity: '0', transform: 'translateY(20px)' },
-          'to': { opacity: '1', transform: 'translateY(0)' },
-        },
-        slideDown: {
-          'from': { opacity: '0', transform: 'translateY(-20px)' },
-          'to': { opacity: '1', transform: 'translateY(0)' },
-        },
-        scaleIn: {
-          'from': { opacity: '0', transform: 'scale(0.9)' },
-          'to': { opacity: '1', transform: 'scale(1)' },
-        },
-        shimmer: {
-          '0%': { backgroundPosition: '-1000px 0' },
-          '100%': { backgroundPosition: '1000px 0' },
-        },
-      },
       backdropBlur: {
         xs: '2px',
       },

@@ -36,10 +36,8 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
       className={cn(
         'relative overflow-hidden',
         'font-medium rounded-lg',
-        'transition-all duration-300',
-        'transform hover:-translate-y-0.5',
         'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-primary)]',
-        'disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none',
+        'disabled:opacity-50 disabled:cursor-not-allowed',
         variants[variant],
         sizes[size],
         loading && 'cursor-wait',
@@ -62,10 +60,7 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
         </div>
       )}
       
-      {/* Ripple effect */}
-      <span className="absolute inset-0 overflow-hidden rounded-lg">
-        <span className="absolute inset-0 bg-white/20 transform scale-0 group-active:scale-100 transition-transform duration-500 rounded-full" />
-      </span>
+      {/* Ripple effect removed */}
     </button>
   );
 };

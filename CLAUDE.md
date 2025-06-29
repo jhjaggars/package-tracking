@@ -137,6 +137,9 @@ CLI also supports a configuration file at `~/.package-tracker.json`:
 - Signal handling for graceful shutdown with configurable timeout
 - Middleware includes logging, recovery, CORS, content-type, and security headers
 
+## Development Workflow
+- Use the start-dev.sh script while working on the project
+
 ## Future Plans
 This is Phase 1 of a larger system. Future phases will add:
 - Web frontend with HTML templates

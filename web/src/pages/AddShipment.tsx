@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Package, Wand2, CheckCircle, AlertTriangle, Sparkles, Truck, Camera } from 'lucide-react';
 import { useCreateShipment, useCarriers } from '../hooks/api';
 import { Button } from '../components/ui/button';
-import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import type { CreateShipmentRequest } from '../types/api';
 
@@ -138,196 +137,122 @@ export function AddShipment() {
 
   if (showSuccess) {
     return (
-      <motion.div 
-        className="max-w-2xl mx-auto text-center py-16"
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5 }}
-      >
-        <motion.div
-          animate={{ 
-            scale: [1, 1.2, 1],
-            rotate: [0, 360, 0]
-          }}
-          transition={{ duration: 2 }}
-          className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-6"
-        >
+      <div className="max-w-2xl mx-auto text-center py-16">
+        <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-6">
           <CheckCircle className="h-8 w-8 text-green-600" />
-        </motion.div>
+        </div>
         <h2 className="text-3xl font-bold text-green-600 mb-4">Package Added Successfully! 🎉</h2>
         <p className="text-muted-foreground mb-8">Your package is now being tracked. We'll keep you updated on its journey!</p>
-        <motion.div
-          animate={{ opacity: [0, 1, 0] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          className="text-sm text-muted-foreground"
-        >
+        <div className="text-sm text-muted-foreground">
           Redirecting to your shipments...
-        </motion.div>
-      </motion.div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <motion.div 
-      className="max-w-2xl mx-auto"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-    >
+    <div className="max-w-2xl mx-auto">
       <div className="space-y-8">
         {/* Delightful Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
+        <div>
           <h1 className="text-3xl font-bold leading-7 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent sm:text-4xl flex items-center gap-3">
-            <motion.div
-              animate={{ rotate: [0, 10, -10, 0] }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            >
+            <div>
               <Package className="h-8 w-8 text-blue-600" />
-            </motion.div>
+            </div>
             Add New Shipment
           </h1>
           <p className="mt-3 text-lg text-muted-foreground flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-yellow-500" />
             Let's get your package tracked with some magic
           </p>
-        </motion.div>
+        </div>
 
         {/* Smart Progress Indicator */}
-        <motion.div 
-          className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-        >
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-blue-600">Progress</span>
             <span className="text-sm text-muted-foreground">{Math.round((step / 3) * 100)}% Complete</span>
           </div>
           <div className="w-full bg-blue-200 rounded-full h-2">
-            <motion.div 
+            <div 
               className="bg-gradient-to-r from-blue-600 to-purple-600 h-2 rounded-full"
-              initial={{ width: 0 }}
-              animate={{ width: `${(step / 3) * 100}%` }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
+              style={{ width: `${(step / 3) * 100}%` }}
             />
           </div>
-        </motion.div>
+        </div>
 
         {/* Enhanced Form */}
-        <motion.div 
-          className="bg-card shadow-xl rounded-2xl border-0 overflow-hidden"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.6 }}
-        >
+        <div className="bg-card shadow-xl rounded-2xl border-0 overflow-hidden">
           <div className="px-6 py-8 sm:p-10">
             <form onSubmit={handleSubmit} className="space-y-8">
               {/* Step 1: Tracking Number */}
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.8 }}
-              >
+              <div>
                 <div className="flex items-center gap-3 mb-4">
-                  <motion.div
+                  <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}
-                    animate={{ scale: step === 1 ? [1, 1.1, 1] : 1 }}
-                    transition={{ duration: 0.5, repeat: step === 1 ? Infinity : 0 }}
                   >
                     1
-                  </motion.div>
+                  </div>
                   <label htmlFor="tracking_number" className="text-lg font-semibold text-foreground">
                     Tracking Number
                   </label>
                   {formData.tracking_number && (
-                    <motion.div
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      className="text-green-600"
-                    >
+                    <div className="text-green-600">
                       <CheckCircle className="h-5 w-5" />
-                    </motion.div>
+                    </div>
                   )}
                 </div>
                 <div className="relative">
-                  <motion.input
+                  <input
                     type="text"
                     id="tracking_number"
                     value={formData.tracking_number}
                     onChange={(e) => handleInputChange('tracking_number', e.target.value)}
                     className="block w-full px-4 py-4 border-2 border-input rounded-xl shadow-sm placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base transition-all duration-200"
                     placeholder="Enter your tracking number (e.g., 1Z999AA1234567890)"
-                    whileFocus={{ scale: 1.02 }}
                   />
-                  <motion.div 
+                  <div 
                     className="absolute right-3 top-1/2 transform -translate-y-1/2"
-                    animate={{ opacity: formData.tracking_number ? 1 : 0 }}
+                    style={{ opacity: formData.tracking_number ? 1 : 0 }}
                   >
                     <Camera className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-blue-600" />
-                  </motion.div>
+                  </div>
                 </div>
-                <AnimatePresence>
-                  {errors.tracking_number && (
-                    <motion.p 
-                      className="mt-3 text-sm text-red-600 flex items-center gap-2"
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                    >
+                {errors.tracking_number && (
+                    <p className="mt-3 text-sm text-red-600 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" />
                       {errors.tracking_number}
-                    </motion.p>
+                    </p>
                   )}
-                </AnimatePresence>
-              </motion.div>
+              </div>
 
               {/* Step 2: Carrier */}
-              <AnimatePresence>
-                {step >= 2 && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.5 }}
-                  >
+              {step >= 2 && (
+                  <div>
                     <div className="flex items-center gap-3 mb-4">
-                      <motion.div
+                      <div
                         className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}
-                        animate={{ scale: step === 2 ? [1, 1.1, 1] : 1 }}
-                        transition={{ duration: 0.5, repeat: step === 2 ? Infinity : 0 }}
                       >
                         2
-                      </motion.div>
+                      </div>
                       <label htmlFor="carrier" className="text-lg font-semibold text-foreground">
                         Carrier
                       </label>
                       {formData.carrier && (
-                        <motion.div
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          className="text-green-600"
-                        >
+                        <div className="text-green-600">
                           <CheckCircle className="h-5 w-5" />
-                        </motion.div>
+                        </div>
                       )}
                       {formData.carrier && (
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded-full"
-                        >
+                        <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
                           <Wand2 className="h-4 w-4" />
                           Auto-detected!
-                        </motion.div>
+                        </div>
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       {carriers?.map((carrier) => (
-                        <motion.button
+                        <button
                           key={carrier.code}
                           type="button"
                           onClick={() => handleInputChange('carrier', carrier.code)}
@@ -336,8 +261,6 @@ export function AddShipment() {
                               ? 'border-blue-600 bg-blue-50 shadow-md'
                               : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
                           }`}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
                         >
                           <div className="flex items-center gap-3">
                             <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
@@ -350,125 +273,79 @@ export function AddShipment() {
                             </div>
                             <span className="font-medium">{carrier.name}</span>
                           </div>
-                        </motion.button>
+                        </button>
                       ))}
                     </div>
-                    <AnimatePresence>
-                      {errors.carrier && (
-                        <motion.p 
-                          className="mt-3 text-sm text-red-600 flex items-center gap-2"
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                        >
+                    {errors.carrier && (
+                        <p className="mt-3 text-sm text-red-600 flex items-center gap-2">
                           <AlertTriangle className="h-4 w-4" />
                           {errors.carrier}
-                        </motion.p>
+                        </p>
                       )}
-                    </AnimatePresence>
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
 
               {/* Step 3: Description */}
-              <AnimatePresence>
-                {step >= 3 && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.5 }}
-                  >
+              {step >= 3 && (
+                  <div>
                     <div className="flex items-center gap-3 mb-4">
-                      <motion.div
+                      <div
                         className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}
-                        animate={{ scale: step === 3 ? [1, 1.1, 1] : 1 }}
-                        transition={{ duration: 0.5, repeat: step === 3 ? Infinity : 0 }}
                       >
                         3
-                      </motion.div>
+                      </div>
                       <label htmlFor="description" className="text-lg font-semibold text-foreground">
                         Package Description
                       </label>
                       {formData.description && (
-                        <motion.div
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          className="text-green-600"
-                        >
+                        <div className="text-green-600">
                           <CheckCircle className="h-5 w-5" />
-                        </motion.div>
+                        </div>
                       )}
                     </div>
-                    <motion.input
+                    <input
                       type="text"
                       id="description"
                       value={formData.description}
                       onChange={(e) => handleInputChange('description', e.target.value)}
                       className="block w-full px-4 py-4 border-2 border-input rounded-xl shadow-sm placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base transition-all duration-200"
                       placeholder="What's in this package? (e.g., Electronics, Books, Clothing)"
-                      whileFocus={{ scale: 1.02 }}
                     />
                     
                     {/* Smart Suggestions */}
-                    <AnimatePresence>
                       {smartSuggestions.length > 0 && !formData.description && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="mt-3"
-                        >
+                        <div className="mt-3">
                           <p className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
                             <Wand2 className="h-4 w-4" />
                             Smart suggestions:
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            {smartSuggestions.map((suggestion, index) => (
-                              <motion.button
+                            {smartSuggestions.map((suggestion) => (
+                              <button
                                 key={suggestion}
                                 type="button"
                                 onClick={() => handleSuggestionClick(suggestion)}
                                 className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm hover:bg-blue-100 transition-colors"
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ delay: index * 0.1 }}
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
                               >
                                 {suggestion}
-                              </motion.button>
+                              </button>
                             ))}
                           </div>
-                        </motion.div>
+                        </div>
                       )}
-                    </AnimatePresence>
 
-                    <AnimatePresence>
-                      {errors.description && (
-                        <motion.p 
-                          className="mt-3 text-sm text-red-600 flex items-center gap-2"
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                        >
+                    {errors.description && (
+                        <p className="mt-3 text-sm text-red-600 flex items-center gap-2">
                           <AlertTriangle className="h-4 w-4" />
                           {errors.description}
-                        </motion.p>
+                        </p>
                       )}
-                    </AnimatePresence>
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
 
               {/* Action Buttons */}
-              <motion.div 
-                className="flex justify-end space-x-4 pt-6"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 1.2 }}
-              >
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <div className="flex justify-end space-x-4 pt-6">
+                <div>
                   <Button
                     type="button"
                     variant="outline"
@@ -477,10 +354,8 @@ export function AddShipment() {
                   >
                     Cancel
                   </Button>
-                </motion.div>
-                <motion.div 
-                  whileHover={{ scale: 1.05 }} 
-                  whileTap={{ scale: 0.95 }}
+                </div>
+                <div 
                   className={createShipmentMutation.isPending ? 'pointer-events-none' : ''}
                 >
                   <Button
@@ -489,14 +364,10 @@ export function AddShipment() {
                     className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border-0 shadow-lg px-8 py-3"
                   >
                     {createShipmentMutation.isPending ? (
-                      <motion.div className="flex items-center gap-2">
-                        <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                          className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         Adding Magic...
-                      </motion.div>
+                      </div>
                     ) : (
                       <>
                         <Sparkles className="mr-2 h-4 w-4" />
@@ -504,12 +375,12 @@ export function AddShipment() {
                       </>
                     )}
                   </Button>
-                </motion.div>
-              </motion.div>
+                </div>
+              </div>
             </form>
           </div>
-        </motion.div>
+        </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
