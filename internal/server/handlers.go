@@ -2,7 +2,9 @@ package server
 
 import (
 	"net/http"
+	"time"
 
+	"package-tracking/internal/cache"
 	"package-tracking/internal/database"
 	"package-tracking/internal/handlers"
 )
@@ -10,10 +12,15 @@ import (
 // TestConfig implements the Config interface for testing
 type TestConfig struct {
 	DisableRateLimit bool
+	DisableCache     bool
 }
 
 func (tc *TestConfig) GetDisableRateLimit() bool {
 	return tc.DisableRateLimit
+}
+
+func (tc *TestConfig) GetDisableCache() bool {
+	return tc.DisableCache
 }
 
 func (tc *TestConfig) GetFedExAPIKey() string {
@@ -39,9 +46,13 @@ type HandlerWrappers struct {
 // NewHandlerWrappers creates new handler wrappers
 func NewHandlerWrappers(db *database.DB) *HandlerWrappers {
 	// Use default test config for backward compatibility
-	config := &TestConfig{DisableRateLimit: false}
+	config := &TestConfig{DisableRateLimit: false, DisableCache: true} // Disable cache in tests
+	
+	// Create a disabled cache manager for tests
+	cacheManager := cache.NewManager(db.RefreshCache, true, 5*time.Minute)
+	
 	return &HandlerWrappers{
-		shipmentHandler: handlers.NewShipmentHandler(db, config),
+		shipmentHandler: handlers.NewShipmentHandler(db, config, cacheManager),
 		healthHandler:   handlers.NewHealthHandler(db),
 		carrierHandler:  handlers.NewCarrierHandler(db),
 		staticHandler:   handlers.NewStaticHandler(nil), // Use filesystem fallback

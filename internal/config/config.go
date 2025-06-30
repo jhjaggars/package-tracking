@@ -34,6 +34,7 @@ type Config struct {
 
 	// Development/testing flags
 	DisableRateLimit bool
+	DisableCache     bool
 }
 
 // Load loads configuration from environment variables with defaults
@@ -65,6 +66,7 @@ func Load() (*Config, error) {
 
 		// Development/testing flags
 		DisableRateLimit: getEnvBoolOrDefault("DISABLE_RATE_LIMIT", false),
+		DisableCache:     getEnvBoolOrDefault("DISABLE_CACHE", false),
 	}
 
 	// Validate configuration
@@ -136,6 +138,11 @@ func (c *Config) GetFedExAPIURL() string {
 // GetDisableRateLimit returns the rate limit disable flag
 func (c *Config) GetDisableRateLimit() bool {
 	return c.DisableRateLimit
+}
+
+// GetDisableCache returns the cache disable flag
+func (c *Config) GetDisableCache() bool {
+	return c.DisableCache
 }
 
 // getEnvOrDefault returns environment variable value or default

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"package-tracking/internal/cache"
 	"package-tracking/internal/carriers"
 	"package-tracking/internal/database"
 
@@ -20,6 +21,7 @@ import (
 // Config interface to avoid circular imports
 type Config interface {
 	GetDisableRateLimit() bool
+	GetDisableCache() bool
 	// Add FedEx API configuration getters
 	GetFedExAPIKey() string
 	GetFedExSecretKey() string
@@ -31,10 +33,11 @@ type ShipmentHandler struct {
 	db      *database.DB
 	factory *carriers.ClientFactory
 	config  Config
+	cache   *cache.Manager
 }
 
 // NewShipmentHandler creates a new shipment handler
-func NewShipmentHandler(db *database.DB, config Config) *ShipmentHandler {
+func NewShipmentHandler(db *database.DB, config Config, cacheManager *cache.Manager) *ShipmentHandler {
 	factory := carriers.NewClientFactory()
 	
 	// Configure FedEx API if credentials are available
@@ -53,6 +56,7 @@ func NewShipmentHandler(db *database.DB, config Config) *ShipmentHandler {
 		db:      db,
 		factory: factory,
 		config:  config,
+		cache:   cacheManager,
 	}
 }
 
@@ -165,6 +169,12 @@ func (h *ShipmentHandler) UpdateShipment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Invalidate cache for updated shipment
+	if err := h.cache.Delete(id); err != nil {
+		log.Printf("WARN: Failed to invalidate cache for shipment %d: %v", id, err)
+		// Continue anyway - cache invalidation failure shouldn't break the response
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(shipment)
@@ -186,6 +196,12 @@ func (h *ShipmentHandler) DeleteShipment(w http.ResponseWriter, r *http.Request)
 		}
 		http.Error(w, fmt.Sprintf("Failed to delete shipment: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Invalidate cache for deleted shipment
+	if err := h.cache.Delete(id); err != nil {
+		log.Printf("WARN: Failed to invalidate cache for deleted shipment %d: %v", id, err)
+		// Continue anyway - cache invalidation failure shouldn't break the response
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -286,6 +302,28 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 	if shipment.IsDelivered {
 		http.Error(w, "Shipment already delivered - no need to refresh", http.StatusConflict)
 		return
+	}
+
+	// Check cache first - if we have fresh data, return it without rate limiting
+	if cachedResponse, err := h.cache.Get(id); err == nil && cachedResponse != nil {
+		log.Printf("DEBUG: Serving cached refresh response for shipment %d", id)
+		
+		// Convert database.RefreshResponse back to handlers.RefreshResponse
+		response := RefreshResponse{
+			ShipmentID:  cachedResponse.ShipmentID,
+			UpdatedAt:   cachedResponse.UpdatedAt,
+			EventsAdded: cachedResponse.EventsAdded,
+			TotalEvents: cachedResponse.TotalEvents,
+			Events:      cachedResponse.Events,
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		return
+	} else if err != nil {
+		log.Printf("WARN: Cache error for shipment %d: %v", id, err)
+		// Continue with normal flow if cache error
 	}
 
 	// Check rate limiting - 5 minutes between refreshes (unless disabled)
@@ -441,6 +479,21 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		EventsAdded: actualEventsAdded,
 		TotalEvents: len(updatedEvents),
 		Events:      updatedEvents,
+	}
+
+	// Convert to database.RefreshResponse for caching
+	dbResponse := &database.RefreshResponse{
+		ShipmentID:  response.ShipmentID,
+		UpdatedAt:   response.UpdatedAt,
+		EventsAdded: response.EventsAdded,
+		TotalEvents: response.TotalEvents,
+		Events:      response.Events,
+	}
+
+	// Store successful response in cache
+	if err := h.cache.Set(id, dbResponse); err != nil {
+		log.Printf("WARN: Failed to cache refresh response for shipment %d: %v", id, err)
+		// Continue anyway - caching failure shouldn't break the response
 	}
 
 	// Debug: Log the response details
