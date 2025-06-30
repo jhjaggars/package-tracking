@@ -140,7 +140,31 @@ CLI also supports a configuration file at `~/.package-tracker.json`:
 - Middleware includes logging, recovery, CORS, content-type, and security headers
 
 ## Development Workflow
-- Use the start-dev.sh script while working on the project
+
+### Development Servers (Tmux-based)
+```bash
+# Start development environment in tmux session
+./start-dev.sh [session-name]
+
+# Examples:
+./start-dev.sh                    # Creates session: package-tracker-dev
+./start-dev.sh my-feature         # Creates session: my-feature
+
+# Tmux session management:
+tmux attach -t package-tracker-dev    # Connect to running servers
+tmux list-sessions                     # List all sessions
+tmux kill-session -t session-name     # Stop servers and session
+
+# Inside tmux session:
+# Ctrl+b then 0  -> Switch to backend window
+# Ctrl+b then 1  -> Switch to frontend window  
+# Ctrl+b then d  -> Detach from session (keeps servers running)
+# Ctrl+C         -> Stop server in current window
+```
+
+### Manual Development Setup
+- Use the start-dev.sh script for the recommended tmux-based workflow
+- For debugging: servers run in separate tmux windows for easy log monitoring
 
 ## Carrier Integration Notes
 

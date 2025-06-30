@@ -1,11 +1,15 @@
 #!/bin/bash
 
 # Package Tracker Development Server Startup Script
-# This script starts both the Go backend and React frontend servers
+# This script starts both the Go backend and React frontend servers in a tmux session
 
 set -e
 
+# Parse session name argument
+SESSION_NAME="${1:-package-tracker-dev}"
+
 echo "🚀 Starting Package Tracker Development Environment..."
+echo "📺 Session: $SESSION_NAME"
 echo ""
 
 # Check for .env file and suggest creating one
@@ -21,22 +25,12 @@ if [ ! -f "go.mod" ] || [ ! -d "web" ]; then
     exit 1
 fi
 
-# Function to cleanup processes on exit
-cleanup() {
-    echo ""
-    echo "🛑 Shutting down servers..."
-    if [ ! -z "$BACKEND_PID" ]; then
-        kill $BACKEND_PID 2>/dev/null || true
-    fi
-    if [ ! -z "$FRONTEND_PID" ]; then
-        kill $FRONTEND_PID 2>/dev/null || true
-    fi
-    echo "✅ Cleanup complete"
-    exit 0
-}
-
-# Set up signal handlers
-trap cleanup SIGINT SIGTERM
+# Check if tmux is installed
+if ! command -v tmux &> /dev/null; then
+    echo "❌ Error: tmux is not installed or not in PATH"
+    echo "💡 Install tmux with: sudo apt-get install tmux (Ubuntu/Debian) or brew install tmux (macOS)"
+    exit 1
+fi
 
 # Check if Go is installed
 if ! command -v go &> /dev/null; then
@@ -56,6 +50,15 @@ if ! command -v npm &> /dev/null; then
     exit 1
 fi
 
+# Check if session already exists
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "🔄 Tmux session '$SESSION_NAME' already exists"
+    echo "💡 To attach: tmux attach -t $SESSION_NAME"
+    echo "💡 To kill:   tmux kill-session -t $SESSION_NAME"
+    echo "💡 To list:   tmux list-sessions"
+    exit 0
+fi
+
 echo "📦 Building Go backend..."
 go build -o bin/server cmd/server/main.go
 
@@ -64,28 +67,31 @@ cd web
 if [ ! -d "node_modules" ]; then
     npm install
 fi
-
 cd ..
 
 echo ""
-echo "🎉 Starting servers..."
+echo "🎉 Creating tmux session and starting servers..."
 echo ""
 
-# Start the Go backend server in the background
+# Create detached tmux session
+tmux new-session -d -s "$SESSION_NAME"
+
+# Rename first window to 'backend'
+tmux rename-window -t "$SESSION_NAME:0" 'backend'
+
+# Create second window for frontend
+tmux new-window -t "$SESSION_NAME:1" -n 'frontend'
+
+# Start backend server in first window
 echo "🔧 Starting backend server on http://localhost:8080"
-./bin/server &
-BACKEND_PID=$!
+tmux send-keys -t "$SESSION_NAME:backend" './bin/server' C-m
 
-# Give the backend a moment to start
-sleep 2
-
-# Start the frontend development server in the background
+# Start frontend server in second window
 echo "🎨 Starting frontend server on http://localhost:5173"
-cd web
-npm run dev &
-FRONTEND_PID=$!
+tmux send-keys -t "$SESSION_NAME:frontend" 'cd web && npm run dev' C-m
 
-cd ..
+# Give servers a moment to start
+sleep 2
 
 echo ""
 echo "✨ Development environment is ready!"
@@ -96,8 +102,15 @@ echo ""
 echo "🎯 Open http://localhost:5173 in your browser to see the delightful UI!"
 echo ""
 echo "💡 Tip: The frontend will auto-reload when you make changes"
-echo "💡 Tip: Press Ctrl+C to stop both servers"
 echo ""
-
-# Wait for both processes
-wait $BACKEND_PID $FRONTEND_PID
+echo "📺 Tmux Session Management:"
+echo "   Attach to session:    tmux attach -t $SESSION_NAME"
+echo "   List all sessions:    tmux list-sessions"
+echo "   Kill this session:    tmux kill-session -t $SESSION_NAME"
+echo "   Detach from session:  Ctrl+b then d"
+echo ""
+echo "🎮 Inside tmux session:"
+echo "   Switch to backend:    Ctrl+b then 0"
+echo "   Switch to frontend:   Ctrl+b then 1"
+echo "   Stop servers:         Ctrl+C in each window"
+echo ""
