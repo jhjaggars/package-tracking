@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -146,10 +147,47 @@ type FedExShipmentDetails struct {
 	WeightAndDimensions          FedExWeightAndDimensions `json:"weightAndDimensions,omitempty"`
 }
 
+// FedExWeightValue handles both string and float64 weight values from FedEx API
+type FedExWeightValue struct {
+	Value float64
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for weight values
+func (w *FedExWeightValue) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as float64 first
+	var f float64
+	if err := json.Unmarshal(data, &f); err == nil {
+		w.Value = f
+		return nil
+	}
+	
+	// Try to unmarshal as string and convert to float64
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			w.Value = 0
+			return nil
+		}
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			w.Value = f
+			return nil
+		}
+	}
+	
+	// Default to 0 if parsing fails
+	w.Value = 0
+	return nil
+}
+
+// MarshalJSON implements custom JSON marshaling for weight values
+func (w FedExWeightValue) MarshalJSON() ([]byte, error) {
+	return json.Marshal(w.Value)
+}
+
 // FedExWeight represents weight information
 type FedExWeight struct {
-	Units string  `json:"units"`
-	Value float64 `json:"value"`
+	Units string           `json:"units"`
+	Value FedExWeightValue `json:"value"`
 }
 
 // FedExPackagingDescription represents packaging details
@@ -252,8 +290,8 @@ type FedExTimeWindow struct {
 }
 
 type FedExDistanceToDestination struct {
-	Units string  `json:"units,omitempty"`
-	Value float64 `json:"value,omitempty"`
+	Units string           `json:"units,omitempty"`
+	Value FedExWeightValue `json:"value,omitempty"`
 }
 
 type FedExConsolidationDetail struct {
