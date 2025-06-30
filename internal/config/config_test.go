@@ -9,7 +9,7 @@ import (
 func TestLoad(t *testing.T) {
 	// Save original environment
 	originalEnv := make(map[string]string)
-	envVars := []string{"SERVER_PORT", "SERVER_HOST", "DB_PATH", "UPDATE_INTERVAL", "LOG_LEVEL"}
+	envVars := []string{"SERVER_PORT", "SERVER_HOST", "DB_PATH", "UPDATE_INTERVAL", "LOG_LEVEL", "DISABLE_CACHE"}
 	for _, key := range envVars {
 		originalEnv[key] = os.Getenv(key)
 	}
@@ -55,6 +55,10 @@ func TestLoad(t *testing.T) {
 
 		if config.LogLevel != "info" {
 			t.Errorf("Expected default log level info, got %s", config.LogLevel)
+		}
+
+		if config.DisableCache != false {
+			t.Errorf("Expected default disable cache false, got %v", config.DisableCache)
 		}
 	})
 
@@ -129,6 +133,28 @@ func TestLoad(t *testing.T) {
 
 		if config.UPSAPIKey != "ups456" {
 			t.Errorf("Expected UPS API key ups456, got %s", config.UPSAPIKey)
+		}
+	})
+
+	t.Run("DisableCache", func(t *testing.T) {
+		// Clear any invalid env vars from previous tests
+		for _, key := range envVars {
+			os.Unsetenv(key)
+		}
+		
+		os.Setenv("DISABLE_CACHE", "true")
+
+		config, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if config.DisableCache != true {
+			t.Errorf("Expected disable cache true, got %v", config.DisableCache)
+		}
+
+		if !config.GetDisableCache() {
+			t.Errorf("Expected GetDisableCache() to return true")
 		}
 	})
 }
