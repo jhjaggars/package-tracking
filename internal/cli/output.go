@@ -235,39 +235,24 @@ func (f *OutputFormatter) printShipmentsTable(shipments []database.Shipment) err
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
 
-	// Header
-	if f.noColor {
-		fmt.Fprintln(w, "ID\tTRACKING\tCARRIER\tSTATUS\tDESCRIPTION\tCREATED")
-	} else {
-		header := f.styles.HeaderStyle.Render("ID") + "\t" +
-			f.styles.HeaderStyle.Render("TRACKING") + "\t" +
-			f.styles.HeaderStyle.Render("CARRIER") + "\t" +
-			f.styles.HeaderStyle.Render("STATUS") + "\t" +
-			f.styles.HeaderStyle.Render("DESCRIPTION") + "\t" +
-			f.styles.HeaderStyle.Render("CREATED")
-		fmt.Fprintln(w, header)
-	}
+	// Always use plain headers for tabwriter alignment, style them afterwards if needed
+	fmt.Fprintln(w, "ID\tTRACKING\tCARRIER\tSTATUS\tDESCRIPTION\tCREATED")
 
-	// Data
+	// Data rows
 	for _, shipment := range shipments {
-		if f.noColor {
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n",
-				shipment.ID,
-				truncate(shipment.TrackingNumber, 15),
-				strings.ToUpper(shipment.Carrier),
-				shipment.Status,
-				truncate(shipment.Description, 25),
-				shipment.CreatedAt.Format("2006-01-02"))
-		} else {
+		status := shipment.Status
+		if !f.noColor {
 			statusStyle := f.getStatusStyle(shipment.Status)
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n",
-				shipment.ID,
-				truncate(shipment.TrackingNumber, 15),
-				strings.ToUpper(shipment.Carrier),
-				statusStyle.Render(shipment.Status),
-				truncate(shipment.Description, 25),
-				shipment.CreatedAt.Format("2006-01-02"))
+			status = statusStyle.Render(shipment.Status)
 		}
+		
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n",
+			shipment.ID,
+			truncate(shipment.TrackingNumber, 15),
+			strings.ToUpper(shipment.Carrier),
+			status,
+			truncate(shipment.Description, 25),
+			shipment.CreatedAt.Format("2006-01-02"))
 	}
 
 	return nil
@@ -310,33 +295,22 @@ func (f *OutputFormatter) printEventsTable(events []database.TrackingEvent) erro
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
 
-	// Header
-	if f.noColor {
-		fmt.Fprintln(w, "TIMESTAMP\tLOCATION\tSTATUS\tDESCRIPTION")
-	} else {
-		header := f.styles.HeaderStyle.Render("TIMESTAMP") + "\t" +
-			f.styles.HeaderStyle.Render("LOCATION") + "\t" +
-			f.styles.HeaderStyle.Render("STATUS") + "\t" +
-			f.styles.HeaderStyle.Render("DESCRIPTION")
-		fmt.Fprintln(w, header)
-	}
+	// Header - always plain for tabwriter alignment
+	fmt.Fprintln(w, "TIMESTAMP\tLOCATION\tSTATUS\tDESCRIPTION")
 
 	// Data
 	for _, event := range events {
-		if f.noColor {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-				event.Timestamp.Format("2006-01-02 15:04"),
-				truncate(event.Location, 20),
-				event.Status,
-				truncate(event.Description, 40))
-		} else {
+		status := event.Status
+		if !f.noColor {
 			statusStyle := f.getStatusStyle(event.Status)
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-				event.Timestamp.Format("2006-01-02 15:04"),
-				truncate(event.Location, 20),
-				statusStyle.Render(event.Status),
-				truncate(event.Description, 40))
+			status = statusStyle.Render(event.Status)
 		}
+		
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+			event.Timestamp.Format("2006-01-02 15:04"),
+			truncate(event.Location, 20),
+			status,
+			truncate(event.Description, 40))
 	}
 
 	return nil
