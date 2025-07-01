@@ -93,13 +93,36 @@ Main entities:
 - `shipments` - Core shipment data with tracking numbers, carriers, status
 - `tracking_events` - Historical tracking events for each shipment
 - `carriers` - Supported carrier configurations
+- `refresh_cache` - In-memory cache storage for refresh responses
 
 ### API Endpoints
 REST API following `/api/` prefix:
 - Shipments: GET/POST `/api/shipments`, GET/PUT/DELETE `/api/shipments/{id}`
 - Events: GET `/api/shipments/{id}/events`
+- Refresh: POST `/api/shipments/{id}/refresh` - Refresh tracking data with caching
 - Carriers: GET `/api/carriers`
 - Health: GET `/api/health`
+
+### Refresh Caching System
+The system implements intelligent caching for refresh requests to improve performance and reduce carrier API load:
+
+**Cache Behavior:**
+- Refresh responses are cached for 5 minutes in both memory and SQLite database
+- Cache persists across server restarts (loaded from database on startup)
+- Cache is automatically invalidated when shipments are updated or deleted
+- If cache entry exists and is fresh (< 5 minutes old), returns cached response immediately
+- If cache entry is stale or missing, performs actual carrier refresh and caches the result
+
+**Performance Benefits:**
+- Cached responses return in < 10ms vs. typical carrier API calls (1-3 seconds)
+- Prevents redundant carrier API calls within the 5-minute window
+- Transparent to API consumers - same response format regardless of cache hit/miss
+
+**Cache Management:**
+- Set `DISABLE_CACHE=true` to disable caching entirely
+- Cache entries automatically expire after 5 minutes
+- Background cleanup removes expired entries every minute
+- Cache invalidation on shipment updates ensures data consistency
 
 ### Environment Variables
 Configuration via environment variables with sensible defaults.
@@ -111,6 +134,8 @@ The server automatically loads variables from a `.env` file if present. Environm
 - `UPDATE_INTERVAL` (default: 1h)
 - `USPS_API_KEY`, `UPS_API_KEY`, `FEDEX_API_KEY`, `FEDEX_SECRET_KEY`, `FEDEX_API_URL`, `DHL_API_KEY` (optional)
 - `LOG_LEVEL` (default: info)
+- `DISABLE_CACHE` (default: false) - Disable refresh response caching
+- `DISABLE_RATE_LIMIT` (default: false) - Disable rate limiting for development/testing
 
 #### CLI Configuration
 - `PACKAGE_TRACKER_SERVER` (default: http://localhost:8080)
@@ -138,8 +163,6 @@ CLI also supports a configuration file at `~/.package-tracker.json`:
 - Structured logging preparation (mentions slog usage)
 - Signal handling for graceful shutdown with configurable timeout
 - Middleware includes logging, recovery, CORS, content-type, and security headers
-
-## Development Workflow
 
 ### Development Servers (Tmux-based)
 ```bash

@@ -11,10 +11,44 @@ import (
 	"testing"
 	"time"
 
+	"package-tracking/internal/cache"
 	"package-tracking/internal/database"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// TestConfig implements the Config interface for testing
+type TestConfig struct {
+	DisableRateLimit bool
+	DisableCache     bool
+}
+
+func (tc *TestConfig) GetDisableRateLimit() bool {
+	return tc.DisableRateLimit
+}
+
+func (tc *TestConfig) GetDisableCache() bool {
+	return tc.DisableCache
+}
+
+func (tc *TestConfig) GetFedExAPIKey() string {
+	return ""
+}
+
+func (tc *TestConfig) GetFedExSecretKey() string {
+	return ""
+}
+
+func (tc *TestConfig) GetFedExAPIURL() string {
+	return "https://apis.fedex.com"
+}
+
+// setupTestHandler creates a shipment handler with disabled cache for testing
+func setupTestHandler(db *database.DB) *ShipmentHandler {
+	config := &TestConfig{DisableRateLimit: false, DisableCache: true}
+	cacheManager := cache.NewManager(db.RefreshCache, true, 5*time.Minute)
+	return NewShipmentHandler(db, config, cacheManager)
+}
 
 // Test database setup and teardown utilities
 func setupTestDB(t *testing.T) *database.DB {
@@ -34,7 +68,9 @@ func setupTestDB(t *testing.T) *database.DB {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		expected_delivery DATETIME,
-		is_delivered BOOLEAN DEFAULT FALSE
+		is_delivered BOOLEAN DEFAULT FALSE,
+		last_manual_refresh DATETIME,
+		manual_refresh_count INTEGER DEFAULT 0
 	);
 
 	CREATE TABLE tracking_events (
@@ -45,6 +81,14 @@ func setupTestDB(t *testing.T) *database.DB {
 		status TEXT NOT NULL,
 		description TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE refresh_cache (
+		shipment_id INTEGER PRIMARY KEY,
+		response_data TEXT NOT NULL,
+		cached_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		expires_at DATETIME NOT NULL,
 		FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
 	);
 
@@ -78,6 +122,7 @@ func setupTestDB(t *testing.T) *database.DB {
 		Shipments:      database.NewShipmentStore(sqlDB),
 		TrackingEvents: database.NewTrackingEventStore(sqlDB),
 		Carriers:       database.NewCarrierStore(sqlDB),
+		RefreshCache:   database.NewRefreshCacheStore(sqlDB),
 	}
 
 	return db
@@ -111,7 +156,7 @@ func TestGetShipments(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(db)
 
-	handler := NewShipmentHandler(db)
+	handler := setupTestHandler(db)
 
 	// Test empty list
 	t.Run("EmptyList", func(t *testing.T) {
@@ -183,7 +228,7 @@ func TestCreateShipment(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(db)
 
-	handler := NewShipmentHandler(db)
+	handler := setupTestHandler(db)
 
 	t.Run("ValidShipment", func(t *testing.T) {
 		shipment := database.Shipment{
@@ -275,7 +320,7 @@ func TestGetShipmentByID(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(db)
 
-	handler := NewShipmentHandler(db)
+	handler := setupTestHandler(db)
 
 	t.Run("ExistingShipment", func(t *testing.T) {
 		shipment := database.Shipment{
@@ -337,7 +382,7 @@ func TestUpdateShipment(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(db)
 
-	handler := NewShipmentHandler(db)
+	handler := setupTestHandler(db)
 
 	t.Run("ValidUpdate", func(t *testing.T) {
 		shipment := database.Shipment{
@@ -427,7 +472,7 @@ func TestDeleteShipment(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(db)
 
-	handler := NewShipmentHandler(db)
+	handler := setupTestHandler(db)
 
 	t.Run("ExistingShipment", func(t *testing.T) {
 		shipment := database.Shipment{
@@ -486,7 +531,7 @@ func TestGetShipmentEvents(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(db)
 
-	handler := NewShipmentHandler(db)
+	handler := setupTestHandler(db)
 
 	t.Run("WithEvents", func(t *testing.T) {
 		shipment := database.Shipment{
@@ -580,7 +625,7 @@ func TestValidationAndErrors(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(db)
 
-	handler := NewShipmentHandler(db)
+	handler := setupTestHandler(db)
 
 	t.Run("EmptyTrackingNumber", func(t *testing.T) {
 		shipment := database.Shipment{

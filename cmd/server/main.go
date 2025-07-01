@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"time"
 
+	"package-tracking/internal/cache"
 	"package-tracking/internal/config"
 	"package-tracking/internal/database"
 	"package-tracking/internal/handlers"
@@ -50,6 +51,16 @@ func main() {
 
 	log.Printf("Database initialized at %s", cfg.DBPath)
 
+	// Initialize cache manager
+	cacheManager := cache.NewManager(db.RefreshCache, cfg.GetDisableCache(), 5*time.Minute)
+	defer cacheManager.Close()
+
+	if cfg.GetDisableCache() {
+		log.Printf("Cache disabled via configuration")
+	} else {
+		log.Printf("Cache initialized with 5 minute TTL")
+	}
+
 	// Create chi router
 	r := chi.NewRouter()
 
@@ -65,7 +76,7 @@ func main() {
 	var staticFS fs.FS = nil
 
 	// Create handlers
-	shipmentHandler := handlers.NewShipmentHandler(db, cfg)
+	shipmentHandler := handlers.NewShipmentHandler(db, cfg, cacheManager)
 	healthHandler := handlers.NewHealthHandler(db)
 	carrierHandler := handlers.NewCarrierHandler(db)
 	dashboardHandler := handlers.NewDashboardHandler(db)

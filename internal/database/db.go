@@ -27,6 +27,7 @@ type DB struct {
 	Shipments      *ShipmentStore
 	TrackingEvents *TrackingEventStore
 	Carriers       *CarrierStore
+	RefreshCache   *RefreshCacheStore
 }
 
 // Open opens a database connection and initializes stores
@@ -52,6 +53,7 @@ func Open(dbPath string) (*DB, error) {
 		Shipments:      NewShipmentStore(db),
 		TrackingEvents: NewTrackingEventStore(db),
 		Carriers:       NewCarrierStore(db),
+		RefreshCache:   NewRefreshCacheStore(db),
 	}
 
 	// Run migrations
@@ -98,11 +100,20 @@ func (db *DB) migrate() error {
 		active BOOLEAN DEFAULT TRUE
 	);
 
+	CREATE TABLE IF NOT EXISTS refresh_cache (
+		shipment_id INTEGER PRIMARY KEY,
+		response_data TEXT NOT NULL,
+		cached_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		expires_at DATETIME NOT NULL,
+		FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status);
 	CREATE INDEX IF NOT EXISTS idx_shipments_carrier ON shipments(carrier);
 	CREATE INDEX IF NOT EXISTS idx_shipments_carrier_delivered ON shipments(carrier, is_delivered);
 	CREATE INDEX IF NOT EXISTS idx_tracking_events_shipment ON tracking_events(shipment_id);
 	CREATE INDEX IF NOT EXISTS idx_tracking_events_dedup ON tracking_events(shipment_id, timestamp, description);
+	CREATE INDEX IF NOT EXISTS idx_refresh_cache_expires ON refresh_cache(expires_at);
 	`
 
 	_, err := db.Exec(schema)
