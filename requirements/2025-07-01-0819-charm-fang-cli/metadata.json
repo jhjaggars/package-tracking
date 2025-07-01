@@ -1,0 +1,25 @@
+{
+  "id": "charm-fang-cli",
+  "started": "2025-07-01T08:19:00Z",
+  "lastUpdated": "2025-07-01T08:35:00Z",
+  "status": "active",
+  "phase": "complete",
+  "progress": {
+    "discovery": {
+      "answered": 5,
+      "total": 5
+    },
+    "detail": {
+      "answered": 5,
+      "total": 5
+    }
+  },
+  "contextFiles": [
+    "cmd/cli/main.go",
+    "internal/cli/output.go",
+    "internal/cli/config.go",
+    "internal/cli/client.go",
+    "go.mod"
+  ],
+  "relatedFeatures": ["table formatting", "json output", "quiet mode"]
+}

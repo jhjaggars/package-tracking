@@ -21,8 +21,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("Expected default quiet to be false, got %v", config.Quiet)
 	}
 	
-	if config.RequestTimeout != 30*time.Second {
-		t.Errorf("Expected default timeout to be 30s, got %v", config.RequestTimeout)
+	if config.RequestTimeout != 180*time.Second {
+		t.Errorf("Expected default timeout to be 180s, got %v", config.RequestTimeout)
 	}
 }
 

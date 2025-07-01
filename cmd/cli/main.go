@@ -115,6 +115,11 @@ func main() {
 				Aliases: []string{"q"},
 				Usage:   "Quiet mode (minimal output)",
 			},
+			&cli.BoolFlag{
+				Name:    "no-color",
+				Usage:   "Disable color output",
+				EnvVars: []string{"NO_COLOR", "PACKAGE_TRACKER_NO_COLOR"},
+			},
 		},
 	}
 
@@ -318,7 +323,7 @@ func initializeClient(c *cli.Context) (*cliapi.Config, *cliapi.OutputFormatter, 
 		return nil, nil, nil, err
 	}
 
-	formatter := cliapi.NewOutputFormatter(config.Format, config.Quiet)
+	formatter := cliapi.NewOutputFormatterWithColor(config.Format, config.Quiet, c.Bool("no-color"))
 	client := cliapi.NewClientWithTimeout(config.ServerURL, config.RequestTimeout)
 
 	// Test connectivity
@@ -347,11 +352,20 @@ func refreshShipment(c *cli.Context) error {
 
 	verbose := c.Bool("verbose")
 
-	if verbose {
-		formatter.PrintInfo("Refreshing tracking data...")
+	// Show progress spinner for refresh operation
+	var spinner *cliapi.ProgressSpinner
+	if !config.Quiet {
+		spinner = cliapi.NewProgressSpinner("Refreshing tracking data", c.Bool("no-color"))
+		spinner.Start()
 	}
 
 	response, err := client.RefreshShipment(id)
+	
+	// Stop spinner before printing results
+	if spinner != nil {
+		spinner.Stop()
+	}
+	
 	if err != nil {
 		formatter.PrintError(err)
 		return err

@@ -69,6 +69,12 @@ go test -v ./internal/config
 
 # Quiet mode (minimal output)
 ./bin/package-tracker --quiet list
+
+# Disable color output (for scripts/CI environments)
+./bin/package-tracker --no-color list
+
+# Can also disable colors via environment variable
+NO_COLOR=1 ./bin/package-tracker list
 ```
 
 ## Architecture
@@ -188,6 +194,14 @@ tmux kill-session -t session-name     # Stop servers and session
 ### Manual Development Setup
 - Use the start-dev.sh script for the recommended tmux-based workflow
 - For debugging: servers run in separate tmux windows for easy log monitoring
+
+### CLI Styling Features
+The CLI includes enhanced visual styling using the Charm ecosystem:
+- **Color-coded statuses**: Package statuses are displayed with appropriate colors (delivered=green, in-transit=yellow, pending=blue, failed=red)
+- **Styled headers**: Table headers are displayed in bold
+- **Progress indicators**: Long operations like refresh show progress spinners (disabled in --no-color mode)
+- **Smart color detection**: Colors automatically disabled when output is piped, in CI environments, or when NO_COLOR is set
+- **Backward compatibility**: All existing output formats and scripts continue to work unchanged
 
 ## Carrier Integration Notes
 

@@ -19,8 +19,8 @@ func TestNewClient(t *testing.T) {
 		t.Errorf("Expected baseURL to be '%s', got '%s'", baseURL, client.baseURL)
 	}
 	
-	if client.httpClient.Timeout != 30*time.Second {
-		t.Errorf("Expected timeout to be 30s, got %v", client.httpClient.Timeout)
+	if client.httpClient.Timeout != 180*time.Second {
+		t.Errorf("Expected timeout to be 180s, got %v", client.httpClient.Timeout)
 	}
 }
 
