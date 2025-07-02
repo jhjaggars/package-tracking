@@ -17,6 +17,11 @@ type Shipment struct {
 	IsDelivered         bool       `json:"is_delivered"`
 	LastManualRefresh   *time.Time `json:"last_manual_refresh,omitempty"`
 	ManualRefreshCount  int        `json:"manual_refresh_count"`
+	LastAutoRefresh     *time.Time `json:"last_auto_refresh,omitempty"`
+	AutoRefreshCount    int        `json:"auto_refresh_count"`
+	AutoRefreshEnabled  bool       `json:"auto_refresh_enabled"`
+	AutoRefreshError    *string    `json:"auto_refresh_error,omitempty"`
+	AutoRefreshFailCount int       `json:"auto_refresh_fail_count"`
 }
 
 type TrackingEvent struct {
@@ -50,7 +55,9 @@ func NewShipmentStore(db *sql.DB) *ShipmentStore {
 func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
 			  created_at, updated_at, expected_delivery, is_delivered,
-			  last_manual_refresh, manual_refresh_count 
+			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
+			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
+			  auto_refresh_fail_count 
 			  FROM shipments ORDER BY created_at DESC`
 	
 	rows, err := s.db.Query(query)
@@ -65,7 +72,10 @@ func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 		err := rows.Scan(&shipment.ID, &shipment.TrackingNumber, &shipment.Carrier,
 			&shipment.Description, &shipment.Status, &shipment.CreatedAt,
 			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered,
-			&shipment.LastManualRefresh, &shipment.ManualRefreshCount)
+			&shipment.LastManualRefresh, &shipment.ManualRefreshCount,
+			&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
+			&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
+			&shipment.AutoRefreshFailCount)
 		if err != nil {
 			return nil, err
 		}
@@ -79,7 +89,9 @@ func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
 			  created_at, updated_at, expected_delivery, is_delivered,
-			  last_manual_refresh, manual_refresh_count 
+			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
+			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
+			  auto_refresh_fail_count 
 			  FROM shipments WHERE is_delivered = false AND carrier = ? ORDER BY created_at DESC`
 	
 	rows, err := s.db.Query(query, carrier)
@@ -94,7 +106,10 @@ func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 		err := rows.Scan(&shipment.ID, &shipment.TrackingNumber, &shipment.Carrier,
 			&shipment.Description, &shipment.Status, &shipment.CreatedAt,
 			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered,
-			&shipment.LastManualRefresh, &shipment.ManualRefreshCount)
+			&shipment.LastManualRefresh, &shipment.ManualRefreshCount,
+			&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
+			&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
+			&shipment.AutoRefreshFailCount)
 		if err != nil {
 			return nil, err
 		}
@@ -108,14 +123,19 @@ func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 func (s *ShipmentStore) GetByID(id int) (*Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
 			  created_at, updated_at, expected_delivery, is_delivered,
-			  last_manual_refresh, manual_refresh_count 
+			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
+			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
+			  auto_refresh_fail_count 
 			  FROM shipments WHERE id = ?`
 	
 	var shipment Shipment
 	err := s.db.QueryRow(query, id).Scan(&shipment.ID, &shipment.TrackingNumber,
 		&shipment.Carrier, &shipment.Description, &shipment.Status,
 		&shipment.CreatedAt, &shipment.UpdatedAt, &shipment.ExpectedDelivery,
-		&shipment.IsDelivered, &shipment.LastManualRefresh, &shipment.ManualRefreshCount)
+		&shipment.IsDelivered, &shipment.LastManualRefresh, &shipment.ManualRefreshCount,
+		&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
+		&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
+		&shipment.AutoRefreshFailCount)
 	
 	if err != nil {
 		return nil, err
@@ -126,12 +146,18 @@ func (s *ShipmentStore) GetByID(id int) (*Shipment, error) {
 
 // Create creates a new shipment
 func (s *ShipmentStore) Create(shipment *Shipment) error {
-	query := `INSERT INTO shipments (tracking_number, carrier, description, status, expected_delivery, is_delivered, manual_refresh_count) 
-			  VALUES (?, ?, ?, ?, ?, ?, ?)`
+	// Set default values for auto-refresh fields if not already set
+	if !shipment.AutoRefreshEnabled {
+		shipment.AutoRefreshEnabled = true // Default to enabled
+	}
+	
+	query := `INSERT INTO shipments (tracking_number, carrier, description, status, expected_delivery, is_delivered, manual_refresh_count, auto_refresh_count, auto_refresh_enabled, auto_refresh_fail_count) 
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	
 	result, err := s.db.Exec(query, shipment.TrackingNumber, shipment.Carrier,
 		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
-		shipment.IsDelivered, shipment.ManualRefreshCount)
+		shipment.IsDelivered, shipment.ManualRefreshCount, shipment.AutoRefreshCount,
+		shipment.AutoRefreshEnabled, shipment.AutoRefreshFailCount)
 	if err != nil {
 		return err
 	}
@@ -153,6 +179,11 @@ func (s *ShipmentStore) Create(shipment *Shipment) error {
 	shipment.UpdatedAt = created.UpdatedAt
 	shipment.LastManualRefresh = created.LastManualRefresh
 	shipment.ManualRefreshCount = created.ManualRefreshCount
+	shipment.LastAutoRefresh = created.LastAutoRefresh
+	shipment.AutoRefreshCount = created.AutoRefreshCount
+	shipment.AutoRefreshEnabled = created.AutoRefreshEnabled
+	shipment.AutoRefreshError = created.AutoRefreshError
+	shipment.AutoRefreshFailCount = created.AutoRefreshFailCount
 	
 	return nil
 }
@@ -161,12 +192,16 @@ func (s *ShipmentStore) Create(shipment *Shipment) error {
 func (s *ShipmentStore) Update(id int, shipment *Shipment) error {
 	query := `UPDATE shipments SET tracking_number = ?, carrier = ?, description = ?, 
 			  status = ?, expected_delivery = ?, is_delivered = ?, last_manual_refresh = ?, 
-			  manual_refresh_count = ?, updated_at = CURRENT_TIMESTAMP 
+			  manual_refresh_count = ?, last_auto_refresh = ?, auto_refresh_count = ?,
+			  auto_refresh_enabled = ?, auto_refresh_error = ?, auto_refresh_fail_count = ?,
+			  updated_at = CURRENT_TIMESTAMP 
 			  WHERE id = ?`
 	
 	result, err := s.db.Exec(query, shipment.TrackingNumber, shipment.Carrier,
 		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
-		shipment.IsDelivered, shipment.LastManualRefresh, shipment.ManualRefreshCount, id)
+		shipment.IsDelivered, shipment.LastManualRefresh, shipment.ManualRefreshCount,
+		shipment.LastAutoRefresh, shipment.AutoRefreshCount, shipment.AutoRefreshEnabled,
+		shipment.AutoRefreshError, shipment.AutoRefreshFailCount, id)
 	
 	if err != nil {
 		return err
@@ -263,6 +298,113 @@ func (s *ShipmentStore) UpdateRefreshTracking(id int) error {
 	query := `UPDATE shipments SET 
 			  last_manual_refresh = CURRENT_TIMESTAMP,
 			  manual_refresh_count = manual_refresh_count + 1,
+			  updated_at = CURRENT_TIMESTAMP 
+			  WHERE id = ?`
+	
+	result, err := s.db.Exec(query, id)
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
+}
+
+// GetActiveForAutoUpdate returns active shipments for auto-update within cutoff date
+func (s *ShipmentStore) GetActiveForAutoUpdate(carrier string, cutoffDate time.Time) ([]Shipment, error) {
+	query := `SELECT id, tracking_number, carrier, description, status, 
+			  created_at, updated_at, expected_delivery, is_delivered,
+			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
+			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
+			  auto_refresh_fail_count 
+			  FROM shipments 
+			  WHERE is_delivered = false 
+			  AND carrier = ? 
+			  AND created_at > ?
+			  AND auto_refresh_enabled = true
+			  AND auto_refresh_fail_count < 10
+			  ORDER BY created_at DESC`
+	
+	rows, err := s.db.Query(query, carrier, cutoffDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var shipments []Shipment
+	for rows.Next() {
+		var shipment Shipment
+		err := rows.Scan(&shipment.ID, &shipment.TrackingNumber, &shipment.Carrier,
+			&shipment.Description, &shipment.Status, &shipment.CreatedAt,
+			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered,
+			&shipment.LastManualRefresh, &shipment.ManualRefreshCount,
+			&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
+			&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
+			&shipment.AutoRefreshFailCount)
+		if err != nil {
+			return nil, err
+		}
+		shipments = append(shipments, shipment)
+	}
+
+	return shipments, rows.Err()
+}
+
+// UpdateAutoRefreshTracking updates auto-refresh tracking fields
+func (s *ShipmentStore) UpdateAutoRefreshTracking(id int64, success bool, errorMsg string) error {
+	var query string
+	var args []interface{}
+	
+	if success {
+		// Reset fail count on success
+		query = `UPDATE shipments SET 
+				 last_auto_refresh = CURRENT_TIMESTAMP,
+				 auto_refresh_count = auto_refresh_count + 1,
+				 auto_refresh_fail_count = 0,
+				 auto_refresh_error = NULL,
+				 updated_at = CURRENT_TIMESTAMP 
+				 WHERE id = ?`
+		args = []interface{}{id}
+	} else {
+		// Increment fail count on failure
+		query = `UPDATE shipments SET 
+				 auto_refresh_fail_count = auto_refresh_fail_count + 1,
+				 auto_refresh_error = ?,
+				 updated_at = CURRENT_TIMESTAMP 
+				 WHERE id = ?`
+		args = []interface{}{errorMsg, id}
+	}
+	
+	result, err := s.db.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
+}
+
+// ResetAutoRefreshFailCount resets the auto-refresh fail count for a shipment
+func (s *ShipmentStore) ResetAutoRefreshFailCount(id int64) error {
+	query := `UPDATE shipments SET 
+			  auto_refresh_fail_count = 0,
+			  auto_refresh_error = NULL,
 			  updated_at = CURRENT_TIMESTAMP 
 			  WHERE id = ?`
 	

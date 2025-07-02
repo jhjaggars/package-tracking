@@ -127,7 +127,12 @@ func (db *DB) migrate() error {
 	}
 
 	// Run additional migrations for new fields
-	return db.migrateRefreshFields()
+	if err := db.migrateRefreshFields(); err != nil {
+		return err
+	}
+
+	// Run auto-refresh field migrations
+	return db.migrateAutoRefreshFields()
 }
 
 // insertDefaultCarriers adds default carrier data
@@ -190,6 +195,50 @@ func (db *DB) migrateRefreshFields() error {
 		for _, query := range alterQueries {
 			if _, err := db.Exec(query); err != nil {
 				return fmt.Errorf("failed to execute migration query '%s': %w", query, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// migrateAutoRefreshFields adds auto-refresh fields to existing databases
+func (db *DB) migrateAutoRefreshFields() error {
+	// Check if auto-refresh columns already exist
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM pragma_table_info('shipments') 
+		WHERE name = 'last_auto_refresh'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check auto-refresh column existence: %w", err)
+	}
+
+	// If columns don't exist, add them
+	if columnExists == 0 {
+		alterQueries := []string{
+			"ALTER TABLE shipments ADD COLUMN last_auto_refresh DATETIME",
+			"ALTER TABLE shipments ADD COLUMN auto_refresh_count INTEGER DEFAULT 0",
+			"ALTER TABLE shipments ADD COLUMN auto_refresh_enabled BOOLEAN DEFAULT TRUE",
+			"ALTER TABLE shipments ADD COLUMN auto_refresh_error TEXT",
+			"ALTER TABLE shipments ADD COLUMN auto_refresh_fail_count INTEGER DEFAULT 0",
+		}
+
+		for _, query := range alterQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to execute auto-refresh migration query '%s': %w", query, err)
+			}
+		}
+
+		// Add index for auto-update queries
+		indexQueries := []string{
+			"CREATE INDEX IF NOT EXISTS idx_shipments_auto_update ON shipments(carrier, is_delivered, auto_refresh_enabled, auto_refresh_fail_count, created_at)",
+		}
+
+		for _, query := range indexQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to create auto-refresh index '%s': %w", query, err)
 			}
 		}
 	}

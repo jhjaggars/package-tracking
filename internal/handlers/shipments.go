@@ -60,6 +60,16 @@ func NewShipmentHandler(db *database.DB, config Config, cacheManager *cache.Mana
 	}
 }
 
+// NewShipmentHandlerWithFactory creates a new shipment handler with an external carrier factory
+func NewShipmentHandlerWithFactory(db *database.DB, config Config, cacheManager *cache.Manager, factory *carriers.ClientFactory) *ShipmentHandler {
+	return &ShipmentHandler{
+		db:      db,
+		factory: factory,
+		config:  config,
+		cache:   cacheManager,
+	}
+}
+
 // GetShipments handles GET /api/shipments
 func (h *ShipmentHandler) GetShipments(w http.ResponseWriter, r *http.Request) {
 	shipments, err := h.db.Shipments.GetAll()

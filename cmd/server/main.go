@@ -18,14 +18,18 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"package-tracking/internal/cache"
+	"package-tracking/internal/carriers"
 	"package-tracking/internal/config"
 	"package-tracking/internal/database"
 	"package-tracking/internal/handlers"
 	"package-tracking/internal/server"
+	"package-tracking/internal/workers"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -61,6 +65,49 @@ func main() {
 		log.Printf("Cache initialized with 5 minute TTL")
 	}
 
+	// Initialize carrier factory
+	carrierFactory := carriers.NewClientFactory()
+	
+	// Configure carriers with available API credentials
+	if cfg.USPSAPIKey != "" {
+		uspsConfig := &carriers.CarrierConfig{
+			UserID:        cfg.USPSAPIKey,
+			PreferredType: carriers.ClientTypeAPI,
+		}
+		carrierFactory.SetCarrierConfig("usps", uspsConfig)
+		log.Printf("USPS API credentials configured")
+	}
+
+	if cfg.FedExAPIKey != "" && cfg.FedExSecretKey != "" {
+		fedexConfig := &carriers.CarrierConfig{
+			ClientID:      cfg.FedExAPIKey,
+			ClientSecret:  cfg.FedExSecretKey,
+			BaseURL:       cfg.FedExAPIURL,
+			PreferredType: carriers.ClientTypeAPI,
+		}
+		carrierFactory.SetCarrierConfig("fedex", fedexConfig)
+		log.Printf("FedEx API credentials configured")
+	}
+
+	// Initialize structured logger for workers
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	// Initialize tracking updater
+	trackingUpdater := workers.NewTrackingUpdater(cfg, db.Shipments, carrierFactory, logger)
+	defer trackingUpdater.Stop()
+	
+	// Start the tracking updater
+	trackingUpdater.Start()
+	
+	if cfg.AutoUpdateEnabled {
+		log.Printf("Automatic tracking updates enabled (interval: %v, cutoff: %d days)", 
+			cfg.UpdateInterval, cfg.AutoUpdateCutoffDays)
+	} else {
+		log.Printf("Automatic tracking updates disabled")
+	}
+
 	// Create chi router
 	r := chi.NewRouter()
 
@@ -76,10 +123,11 @@ func main() {
 	var staticFS fs.FS = nil
 
 	// Create handlers
-	shipmentHandler := handlers.NewShipmentHandler(db, cfg, cacheManager)
+	shipmentHandler := handlers.NewShipmentHandlerWithFactory(db, cfg, cacheManager, carrierFactory)
 	healthHandler := handlers.NewHealthHandler(db)
 	carrierHandler := handlers.NewCarrierHandler(db)
 	dashboardHandler := handlers.NewDashboardHandler(db)
+	adminHandler := handlers.NewAdminHandler(trackingUpdater)
 	staticHandler := handlers.NewStaticHandler(staticFS)
 
 	// API routes
@@ -94,6 +142,13 @@ func main() {
 		r.Get("/health", healthHandler.HealthCheck)
 		r.Get("/carriers", carrierHandler.GetCarriers)
 		r.Get("/dashboard/stats", dashboardHandler.GetStats)
+		
+		// Admin routes
+		r.Route("/admin", func(r chi.Router) {
+			r.Get("/tracking-updater/status", adminHandler.GetTrackingUpdaterStatus)
+			r.Post("/tracking-updater/pause", adminHandler.PauseTrackingUpdater)
+			r.Post("/tracking-updater/resume", adminHandler.ResumeTrackingUpdater)
+		})
 	})
 
 	// Static file routes (catch-all for SPA)

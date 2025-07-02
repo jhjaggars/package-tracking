@@ -1,0 +1,13 @@
+{
+  "id": "tmux-dev-script",
+  "started": "2025-06-30T11:00:00Z",
+  "lastUpdated": "2025-06-30T11:00:00Z",
+  "status": "complete",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": ["start-dev.sh", "start-prod.sh", "test_server.sh"],
+  "relatedFeatures": ["start-prod.sh", "test_server.sh"]
+}

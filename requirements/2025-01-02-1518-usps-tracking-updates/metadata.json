@@ -1,0 +1,23 @@
+{
+  "id": "usps-tracking-updates",
+  "started": "2025-01-02T15:18:00Z",
+  "lastUpdated": "2025-01-02T15:19:00Z",
+  "status": "complete",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": [
+    "internal/cache/manager.go",
+    "internal/handlers/shipments.go",
+    "internal/config/config.go",
+    "internal/database/models.go",
+    "internal/carriers/fedex_api.go"
+  ],
+  "relatedFeatures": [
+    "Cache manager cleanup loop",
+    "Manual refresh endpoint",
+    "Graceful shutdown"
+  ]
+}
