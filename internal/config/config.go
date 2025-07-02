@@ -35,6 +35,16 @@ type Config struct {
 	// Development/testing flags
 	DisableRateLimit bool
 	DisableCache     bool
+
+	// Auto-update configuration
+	AutoUpdateEnabled    bool
+	AutoUpdateCutoffDays int
+	AutoUpdateBatchSize  int
+	AutoUpdateMaxRetries int
+
+	// Timeout configuration
+	AutoUpdateBatchTimeout      time.Duration
+	AutoUpdateIndividualTimeout time.Duration
 }
 
 // Load loads configuration from environment variables with defaults
@@ -67,6 +77,16 @@ func Load() (*Config, error) {
 		// Development/testing flags
 		DisableRateLimit: getEnvBoolOrDefault("DISABLE_RATE_LIMIT", false),
 		DisableCache:     getEnvBoolOrDefault("DISABLE_CACHE", false),
+
+		// Auto-update configuration
+		AutoUpdateEnabled:    getEnvBoolOrDefault("AUTO_UPDATE_ENABLED", true),
+		AutoUpdateCutoffDays: getEnvIntOrDefault("AUTO_UPDATE_CUTOFF_DAYS", 30),
+		AutoUpdateBatchSize:  getEnvIntOrDefault("AUTO_UPDATE_BATCH_SIZE", 10),
+		AutoUpdateMaxRetries: getEnvIntOrDefault("AUTO_UPDATE_MAX_RETRIES", 10),
+
+		// Timeout configuration
+		AutoUpdateBatchTimeout:      getEnvDurationOrDefault("AUTO_UPDATE_BATCH_TIMEOUT", "60s"),
+		AutoUpdateIndividualTimeout: getEnvDurationOrDefault("AUTO_UPDATE_INDIVIDUAL_TIMEOUT", "30s"),
 	}
 
 	// Validate configuration
@@ -110,6 +130,25 @@ func (c *Config) validate() error {
 	}
 	if !isValidLogLevel {
 		return fmt.Errorf("invalid log level: %s (must be one of: debug, info, warn, error)", c.LogLevel)
+	}
+
+	// Validate auto-update configuration
+	if c.AutoUpdateCutoffDays < 0 {
+		return fmt.Errorf("auto update cutoff days must be non-negative")
+	}
+	if c.AutoUpdateBatchSize < 1 || c.AutoUpdateBatchSize > 10 {
+		return fmt.Errorf("auto update batch size must be between 1 and 10")
+	}
+	if c.AutoUpdateMaxRetries < 0 {
+		return fmt.Errorf("auto update max retries must be non-negative")
+	}
+
+	// Validate timeout configuration
+	if c.AutoUpdateBatchTimeout <= 0 {
+		return fmt.Errorf("auto update batch timeout must be positive")
+	}
+	if c.AutoUpdateIndividualTimeout <= 0 {
+		return fmt.Errorf("auto update individual timeout must be positive")
 	}
 
 	return nil
@@ -173,6 +212,16 @@ func getEnvDurationOrDefault(key string, defaultValue string) time.Duration {
 func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if parsed, err := strconv.ParseBool(value); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
+// getEnvIntOrDefault returns environment variable as integer or default
+func getEnvIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
 			return parsed
 		}
 	}

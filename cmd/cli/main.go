@@ -89,8 +89,11 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "verbose",
-						Aliases: []string{"v"},
 						Usage:   "Show detailed refresh information",
+					},
+					&cli.BoolFlag{
+						Name:    "force",
+						Usage:   "Force refresh by bypassing cache",
 					},
 				},
 				Action: refreshShipment,
@@ -351,15 +354,20 @@ func refreshShipment(c *cli.Context) error {
 	}
 
 	verbose := c.Bool("verbose")
+	force := c.Bool("force")
 
 	// Show progress spinner for refresh operation
 	var spinner *cliapi.ProgressSpinner
 	if !config.Quiet {
-		spinner = cliapi.NewProgressSpinner("Refreshing tracking data", c.Bool("no-color"))
+		spinnerText := "Refreshing tracking data"
+		if force {
+			spinnerText = "Force refreshing tracking data (bypassing cache)"
+		}
+		spinner = cliapi.NewProgressSpinner(spinnerText, c.Bool("no-color"))
 		spinner.Start()
 	}
 
-	response, err := client.RefreshShipment(id)
+	response, err := client.RefreshShipmentWithForce(id, force)
 	
 	// Stop spinner before printing results
 	if spinner != nil {
@@ -383,17 +391,39 @@ func refreshShipment(c *cli.Context) error {
 			formatter.PrintInfo(fmt.Sprintf("Events added: %d", response.EventsAdded))
 			formatter.PrintInfo(fmt.Sprintf("Total events: %d", response.TotalEvents))
 			
+			// Show cache information
+			if response.CacheStatus != "" {
+				formatter.PrintInfo(fmt.Sprintf("Cache status: %s", response.CacheStatus))
+			}
+			if response.RefreshDuration != "" {
+				formatter.PrintInfo(fmt.Sprintf("Refresh duration: %s", response.RefreshDuration))
+			}
+			if response.PreviousCacheAge != "" {
+				formatter.PrintInfo(fmt.Sprintf("Previous cache age: %s", response.PreviousCacheAge))
+			}
+			
 			if response.EventsAdded > 0 {
 				formatter.PrintInfo("New tracking events:")
 			} else {
 				formatter.PrintInfo("No new tracking events found")
 			}
 		} else {
+			// Show basic status with cache info for force refresh
+			var successMsg string
 			if response.EventsAdded > 0 {
-				formatter.PrintSuccess(fmt.Sprintf("Refresh successful - %d new events found", response.EventsAdded))
+				successMsg = fmt.Sprintf("Refresh successful - %d new events found", response.EventsAdded)
 			} else {
-				formatter.PrintSuccess("Refresh successful - no new events")
+				successMsg = "Refresh successful - no new events"
 			}
+			
+			// Add cache status for force refresh
+			if force && response.PreviousCacheAge != "" {
+				successMsg += fmt.Sprintf(" (invalidated %s old cache)", response.PreviousCacheAge)
+			} else if response.CacheStatus == "hit" {
+				successMsg += " (from cache)"
+			}
+			
+			formatter.PrintSuccess(successMsg)
 		}
 
 		// Show all events

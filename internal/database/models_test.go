@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -343,4 +344,215 @@ func TestTrackingEventStore_CreateEvent_Concurrent(t *testing.T) {
 	if len(events) != 1 {
 		t.Errorf("Expected 1 event after concurrent creation, got %d", len(events))
 	}
+}
+
+// Test our new atomic transaction method for race condition fix
+func TestShipmentStore_UpdateShipmentWithAutoRefresh_Success(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Create test shipment
+	shipment := Shipment{
+		TrackingNumber:      "TEST123456",
+		Carrier:             "usps",
+		Description:         "Test Package",
+		Status:              "pending",
+		AutoRefreshEnabled:  true,
+		AutoRefreshFailCount: 0,
+	}
+
+	err := db.Shipments.Create(&shipment)
+	if err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+
+	originalID := shipment.ID
+
+	// Modify shipment data
+	shipment.Status = "in_transit"
+	shipment.Description = "Updated Package"
+
+	// Test successful atomic update
+	err = db.Shipments.UpdateShipmentWithAutoRefresh(originalID, &shipment, true, "")
+	if err != nil {
+		t.Fatalf("UpdateShipmentWithAutoRefresh failed: %v", err)
+	}
+
+	// Verify shipment data was updated
+	updated, err := db.Shipments.GetByID(originalID)
+	if err != nil {
+		t.Fatalf("Failed to get updated shipment: %v", err)
+	}
+
+	if updated.Status != "in_transit" {
+		t.Errorf("Expected status 'in_transit', got '%s'", updated.Status)
+	}
+
+	if updated.Description != "Updated Package" {
+		t.Errorf("Expected description 'Updated Package', got '%s'", updated.Description)
+	}
+
+	// Verify auto-refresh tracking was updated atomically
+	if updated.AutoRefreshCount != 1 {
+		t.Errorf("Expected auto refresh count 1, got %d", updated.AutoRefreshCount)
+	}
+
+	if updated.AutoRefreshFailCount != 0 {
+		t.Errorf("Expected auto refresh fail count 0, got %d", updated.AutoRefreshFailCount)
+	}
+
+	if updated.LastAutoRefresh == nil {
+		t.Error("Expected LastAutoRefresh to be set")
+	}
+
+	if updated.AutoRefreshError != nil {
+		t.Errorf("Expected AutoRefreshError to be nil, got %v", updated.AutoRefreshError)
+	}
+}
+
+func TestShipmentStore_UpdateShipmentWithAutoRefresh_Failure(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Create test shipment
+	shipment := Shipment{
+		TrackingNumber:      "TEST123456",
+		Carrier:             "usps",
+		Description:         "Test Package",
+		Status:              "pending",
+		AutoRefreshEnabled:  true,
+		AutoRefreshFailCount: 0,
+	}
+
+	err := db.Shipments.Create(&shipment)
+	if err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+
+	originalID := shipment.ID
+
+	// Test failure case
+	errorMsg := "Carrier API temporarily unavailable"
+	err = db.Shipments.UpdateShipmentWithAutoRefresh(originalID, &shipment, false, errorMsg)
+	if err != nil {
+		t.Fatalf("UpdateShipmentWithAutoRefresh failed: %v", err)
+	}
+
+	// Verify error tracking was updated
+	updated, err := db.Shipments.GetByID(originalID)
+	if err != nil {
+		t.Fatalf("Failed to get updated shipment: %v", err)
+	}
+
+	// Auto refresh count should not change on failure
+	if updated.AutoRefreshCount != 0 {
+		t.Errorf("Expected auto refresh count 0, got %d", updated.AutoRefreshCount)
+	}
+
+	// Fail count should increment
+	if updated.AutoRefreshFailCount != 1 {
+		t.Errorf("Expected auto refresh fail count 1, got %d", updated.AutoRefreshFailCount)
+	}
+
+	// Error message should be recorded
+	if updated.AutoRefreshError == nil {
+		t.Error("Expected AutoRefreshError to be set")
+	} else if *updated.AutoRefreshError != errorMsg {
+		t.Errorf("Expected error message '%s', got '%s'", errorMsg, *updated.AutoRefreshError)
+	}
+}
+
+func TestShipmentStore_UpdateShipmentWithAutoRefresh_AtomicTransaction(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Create test shipment
+	shipment := Shipment{
+		TrackingNumber:      "TEST123456",
+		Carrier:             "usps",
+		Description:         "Test Package",
+		Status:              "pending",
+		AutoRefreshEnabled:  true,
+		AutoRefreshFailCount: 0,
+	}
+
+	err := db.Shipments.Create(&shipment)
+	if err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+
+	originalID := shipment.ID
+
+	// Test atomic updates to verify transaction consistency
+	// The UpdateShipmentWithAutoRefresh method combines shipment updates with auto-refresh tracking
+	shipment.Status = "in_transit"
+	
+	// Perform multiple sequential successful updates 
+	expectedCount := 5
+	for i := 0; i < expectedCount; i++ {
+		// Get current shipment state for each update
+		current, err := db.Shipments.GetByID(originalID)
+		if err != nil {
+			t.Fatalf("Failed to get current shipment for update %d: %v", i, err)
+		}
+		
+		// Modify the current shipment data
+		current.Description = fmt.Sprintf("Updated Package %d", i)
+		current.Status = "in_transit"
+		
+		// Update with success=true, which should increment auto_refresh_count
+		err = db.Shipments.UpdateShipmentWithAutoRefresh(originalID, current, true, "")
+		if err != nil {
+			t.Fatalf("Update %d failed: %v", i, err)
+		}
+	}
+	
+	// Verify final state after successful updates
+	final, err := db.Shipments.GetByID(originalID)
+	if err != nil {
+		t.Fatalf("Failed to get final shipment: %v", err)
+	}
+	
+	// Auto refresh count should equal number of successful updates
+	if final.AutoRefreshCount != expectedCount {
+		t.Errorf("Expected auto refresh count %d, got %d", expectedCount, final.AutoRefreshCount)
+	}
+	
+	// Fail count should be 0 since all updates were successful
+	if final.AutoRefreshFailCount != 0 {
+		t.Errorf("Expected auto refresh fail count 0, got %d", final.AutoRefreshFailCount)
+	}
+	
+	// Test one failure scenario to verify atomic error handling
+	current, err := db.Shipments.GetByID(originalID)
+	if err != nil {
+		t.Fatalf("Failed to get current shipment for error test: %v", err)
+	}
+	
+	// Update with success=false, which should increment fail count
+	err = db.Shipments.UpdateShipmentWithAutoRefresh(originalID, current, false, "Test error")
+	if err != nil {
+		t.Fatalf("Failed update failed: %v", err)
+	}
+	
+	// Verify error tracking was updated atomically
+	finalWithError, err := db.Shipments.GetByID(originalID)
+	if err != nil {
+		t.Fatalf("Failed to get shipment after error: %v", err)
+	}
+	
+	// Success count should remain the same (fail operations don't change it)
+	if finalWithError.AutoRefreshCount != expectedCount {
+		t.Errorf("Expected auto refresh count %d after error, got %d", expectedCount, finalWithError.AutoRefreshCount)
+	}
+	
+	// Fail count should increment
+	if finalWithError.AutoRefreshFailCount != 1 {
+		t.Errorf("Expected auto refresh fail count 1 after error, got %d", finalWithError.AutoRefreshFailCount)
+	}
+	
+	// Error message should be set
+	if finalWithError.AutoRefreshError == nil || *finalWithError.AutoRefreshError != "Test error" {
+		t.Errorf("Expected error message 'Test error', got %v", finalWithError.AutoRefreshError)
+	}
+	
+	t.Logf("Atomicity test: %d successful + 1 failed update resulted in success count %d, fail count %d", 
+		expectedCount, finalWithError.AutoRefreshCount, finalWithError.AutoRefreshFailCount)
 }

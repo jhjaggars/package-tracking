@@ -13,6 +13,7 @@ import (
 
 	"package-tracking/internal/cache"
 	"package-tracking/internal/carriers"
+	"package-tracking/internal/ratelimit"
 	"package-tracking/internal/database"
 
 	"github.com/go-chi/chi/v5"
@@ -52,6 +53,16 @@ func NewShipmentHandler(db *database.DB, config Config, cacheManager *cache.Mana
 		factory.SetCarrierConfig("fedex", fedexConfig)
 	}
 	
+	return &ShipmentHandler{
+		db:      db,
+		factory: factory,
+		config:  config,
+		cache:   cacheManager,
+	}
+}
+
+// NewShipmentHandlerWithFactory creates a new shipment handler with an external carrier factory
+func NewShipmentHandlerWithFactory(db *database.DB, config Config, cacheManager *cache.Manager, factory *carriers.ClientFactory) *ShipmentHandler {
 	return &ShipmentHandler{
 		db:      db,
 		factory: factory,
@@ -271,15 +282,20 @@ func validateShipment(shipment *database.Shipment) error {
 
 // RefreshResponse represents the response from a manual refresh request
 type RefreshResponse struct {
-	ShipmentID  int                      `json:"shipment_id"`
-	UpdatedAt   time.Time                `json:"updated_at"`
-	EventsAdded int                      `json:"events_added"`
-	TotalEvents int                      `json:"total_events"`
-	Events      []database.TrackingEvent `json:"events"`
+	ShipmentID       int                      `json:"shipment_id"`
+	UpdatedAt        time.Time                `json:"updated_at"`
+	EventsAdded      int                      `json:"events_added"`
+	TotalEvents      int                      `json:"total_events"`
+	Events           []database.TrackingEvent `json:"events"`
+	CacheStatus      string                   `json:"cache_status"`      // "hit", "miss", "forced", "disabled"
+	RefreshDuration  string                   `json:"refresh_duration"`  // How long the refresh took
+	PreviousCacheAge string                   `json:"previous_cache_age"` // Age of cache that was invalidated
 }
 
 // RefreshShipment handles POST /api/shipments/{id}/refresh
 func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request) {
+	refreshStart := time.Now()
+	
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -287,6 +303,10 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Check for force parameter
+	forceRefresh := r.URL.Query().Get("force") == "true"
+	log.Printf("DEBUG: Force refresh parameter: %v", forceRefresh)
+	
 	// Get the shipment
 	shipment, err := h.db.Shipments.GetByID(id)
 	if err != nil {
@@ -304,36 +324,56 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check cache first - if we have fresh data, return it without rate limiting
-	if cachedResponse, err := h.cache.Get(id); err == nil && cachedResponse != nil {
-		log.Printf("DEBUG: Serving cached refresh response for shipment %d", id)
-		
-		// Convert database.RefreshResponse back to handlers.RefreshResponse
-		response := RefreshResponse{
-			ShipmentID:  cachedResponse.ShipmentID,
-			UpdatedAt:   cachedResponse.UpdatedAt,
-			EventsAdded: cachedResponse.EventsAdded,
-			TotalEvents: cachedResponse.TotalEvents,
-			Events:      cachedResponse.Events,
+	var cacheStatus string
+	var previousCacheAge string
+	
+	// Check if cache is disabled
+	if !h.cache.IsEnabled() {
+		cacheStatus = "disabled"
+	} else if forceRefresh {
+		// Handle force refresh - invalidate cache first
+		log.Printf("INFO: Force refresh requested for shipment %d", id)
+		cacheAge, err := h.cache.ForceInvalidate(id)
+		if err != nil {
+			log.Printf("WARN: Failed to invalidate cache for shipment %d: %v", id, err)
 		}
-		
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response)
-		return
-	} else if err != nil {
-		log.Printf("WARN: Cache error for shipment %d: %v", id, err)
-		// Continue with normal flow if cache error
+		if cacheAge != nil {
+			previousCacheAge = cacheAge.Truncate(time.Second).String()
+			log.Printf("INFO: Invalidated cache for shipment %d (age: %s)", id, previousCacheAge)
+		}
+		cacheStatus = "forced"
+	} else {
+		// Check cache first - if we have fresh data, return it without rate limiting
+		if cachedResponse, err := h.cache.Get(id); err == nil && cachedResponse != nil {
+			log.Printf("DEBUG: Serving cached refresh response for shipment %d", id)
+			
+			// Convert database.RefreshResponse back to handlers.RefreshResponse
+			response := RefreshResponse{
+				ShipmentID:      cachedResponse.ShipmentID,
+				UpdatedAt:       cachedResponse.UpdatedAt,
+				EventsAdded:     cachedResponse.EventsAdded,
+				TotalEvents:     cachedResponse.TotalEvents,
+				Events:          cachedResponse.Events,
+				CacheStatus:     "hit",
+				RefreshDuration: time.Since(refreshStart).Truncate(time.Millisecond).String(),
+			}
+			
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(response)
+			return
+		} else if err != nil {
+			log.Printf("WARN: Cache error for shipment %d: %v", id, err)
+			// Continue with normal flow if cache error
+		}
+		cacheStatus = "miss"
 	}
 
-	// Check rate limiting - 5 minutes between refreshes (unless disabled)
-	if !h.config.GetDisableRateLimit() && shipment.LastManualRefresh != nil {
-		timeSinceLastRefresh := time.Since(*shipment.LastManualRefresh)
-		if timeSinceLastRefresh < 5*time.Minute {
-			remainingTime := 5*time.Minute - timeSinceLastRefresh
-			http.Error(w, fmt.Sprintf("Rate limit exceeded. Please wait %v before refreshing again", remainingTime.Truncate(time.Second)), http.StatusTooManyRequests)
-			return
-		}
+	// Check rate limiting using unified rate limiting logic
+	rateLimitResult := ratelimit.CheckRefreshRateLimit(h.config, shipment.LastManualRefresh, forceRefresh)
+	if rateLimitResult.ShouldBlock {
+		http.Error(w, fmt.Sprintf("Rate limit exceeded. Please wait %v before refreshing again", rateLimitResult.RemainingTime.Truncate(time.Second)), http.StatusTooManyRequests)
+		return
 	}
 
 	// Create client for tracking - prefer API for FedEx, fallback to headless/scraping for others
@@ -474,11 +514,14 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 
 	// Create response
 	response := RefreshResponse{
-		ShipmentID:  id,
-		UpdatedAt:   time.Now(),
-		EventsAdded: actualEventsAdded,
-		TotalEvents: len(updatedEvents),
-		Events:      updatedEvents,
+		ShipmentID:       id,
+		UpdatedAt:        time.Now(),
+		EventsAdded:      actualEventsAdded,
+		TotalEvents:      len(updatedEvents),
+		Events:           updatedEvents,
+		CacheStatus:      cacheStatus,
+		RefreshDuration:  time.Since(refreshStart).Truncate(time.Millisecond).String(),
+		PreviousCacheAge: previousCacheAge,
 	}
 
 	// Convert to database.RefreshResponse for caching
@@ -496,9 +539,9 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		// Continue anyway - caching failure shouldn't break the response
 	}
 
-	// Debug: Log the response details
-	responseJSON, _ := json.Marshal(response)
-	log.Printf("DEBUG: Response JSON (%d bytes): %s", len(responseJSON), string(responseJSON))
+	// Debug: Log response summary (without sensitive data)
+	log.Printf("DEBUG: Refresh response - ShipmentID: %d, EventsAdded: %d, CacheStatus: %s, Duration: %s", 
+		response.ShipmentID, response.EventsAdded, response.CacheStatus, response.RefreshDuration)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

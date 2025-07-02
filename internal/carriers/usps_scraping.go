@@ -94,8 +94,8 @@ func (c *USPSScrapingClient) Track(ctx context.Context, req *TrackingRequest) (*
 }
 
 func (c *USPSScrapingClient) trackSingle(ctx context.Context, trackingNumber string) (*TrackingInfo, error) {
-	// Build tracking URL
-	trackURL := fmt.Sprintf("%s/track?id=%s", c.baseURL, url.QueryEscape(trackingNumber))
+	// Build tracking URL using modern USPS format
+	trackURL := fmt.Sprintf("%s/go/TrackConfirmAction?tLabels=%s", c.baseURL, url.QueryEscape(trackingNumber))
 	
 	// Fetch the tracking page
 	html, err := c.fetchPage(ctx, trackURL)

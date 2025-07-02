@@ -61,11 +61,14 @@ type UpdateShipmentRequest struct {
 
 // RefreshResponse represents the response from a manual refresh request
 type RefreshResponse struct {
-	ShipmentID  int                      `json:"shipment_id"`
-	UpdatedAt   time.Time                `json:"updated_at"`
-	EventsAdded int                      `json:"events_added"`
-	TotalEvents int                      `json:"total_events"`
-	Events      []database.TrackingEvent `json:"events"`
+	ShipmentID       int                      `json:"shipment_id"`
+	UpdatedAt        time.Time                `json:"updated_at"`
+	EventsAdded      int                      `json:"events_added"`
+	TotalEvents      int                      `json:"total_events"`
+	Events           []database.TrackingEvent `json:"events"`
+	CacheStatus      string                   `json:"cache_status,omitempty"`      // "hit", "miss", "forced", "disabled"
+	RefreshDuration  string                   `json:"refresh_duration,omitempty"`  // How long the refresh took
+	PreviousCacheAge string                   `json:"previous_cache_age,omitempty"` // Age of cache that was invalidated
 }
 
 // doRequest performs an HTTP request and handles errors
@@ -243,7 +246,15 @@ func (c *Client) GetEvents(shipmentID int) ([]database.TrackingEvent, error) {
 
 // RefreshShipment manually refreshes tracking data for a shipment
 func (c *Client) RefreshShipment(shipmentID int) (*RefreshResponse, error) {
+	return c.RefreshShipmentWithForce(shipmentID, false)
+}
+
+// RefreshShipmentWithForce manually refreshes tracking data for a shipment with optional force flag
+func (c *Client) RefreshShipmentWithForce(shipmentID int, force bool) (*RefreshResponse, error) {
 	path := "/api/shipments/" + strconv.Itoa(shipmentID) + "/refresh"
+	if force {
+		path += "?force=true"
+	}
 	resp, err := c.doRequest("POST", path, nil)
 	if err != nil {
 		return nil, err
