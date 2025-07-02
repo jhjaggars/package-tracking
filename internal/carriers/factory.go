@@ -156,6 +156,8 @@ func (f *ClientFactory) createHeadlessClient(carrier string, config *CarrierConf
 	}
 	
 	switch carrier {
+	case "usps":
+		return NewUSPSHeadlessClient(), nil
 	case "fedex":
 		return NewFedExHeadlessClient(), nil
 	// Other carriers can be added here as they get headless implementations
@@ -169,6 +171,8 @@ func (f *ClientFactory) createHeadlessClient(carrier string, config *CarrierConf
 // requiresHeadless returns true for carriers that require headless browsing
 func (f *ClientFactory) requiresHeadless(carrier string) bool {
 	switch carrier {
+	case "usps":
+		return true // USPS now requires headless due to JavaScript SPA
 	case "fedex":
 		return true // FedEx now requires headless due to SPA
 	default:

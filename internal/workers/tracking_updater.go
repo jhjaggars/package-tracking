@@ -157,7 +157,7 @@ func (u *TrackingUpdater) updateUSPSShipments() {
 
 	u.logger.Info("Processing eligible USPS shipments", "count", len(eligibleShipments))
 
-	// Create USPS carrier client
+	// Create USPS carrier client with headless browser support
 	uspsClient, _, err := u.carrierFactory.CreateClient("usps")
 	if err != nil {
 		u.logger.Error("Failed to create USPS carrier client", "error", err)
