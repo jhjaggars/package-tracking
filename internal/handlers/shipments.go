@@ -541,9 +541,9 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		// Continue anyway - caching failure shouldn't break the response
 	}
 
-	// Debug: Log the response details
-	responseJSON, _ := json.Marshal(response)
-	log.Printf("DEBUG: Response JSON (%d bytes): %s", len(responseJSON), string(responseJSON))
+	// Debug: Log response summary (without sensitive data)
+	log.Printf("DEBUG: Refresh response - ShipmentID: %d, EventsAdded: %d, CacheStatus: %s, Duration: %s", 
+		response.ShipmentID, response.EventsAdded, response.CacheStatus, response.RefreshDuration)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
