@@ -2,13 +2,16 @@ package workers
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
+	"package-tracking/internal/cache"
 	"package-tracking/internal/carriers"
 	"package-tracking/internal/config"
 	"package-tracking/internal/database"
+	"package-tracking/internal/ratelimit"
 )
 
 // TrackingUpdater handles automatic background updates of shipment tracking information
@@ -18,12 +21,13 @@ type TrackingUpdater struct {
 	config         *config.Config
 	shipmentStore  *database.ShipmentStore
 	carrierFactory *carriers.ClientFactory
+	cache          *cache.Manager
 	paused         atomic.Bool
 	logger         *slog.Logger
 }
 
 // NewTrackingUpdater creates a new tracking updater service
-func NewTrackingUpdater(cfg *config.Config, shipmentStore *database.ShipmentStore, carrierFactory *carriers.ClientFactory, logger *slog.Logger) *TrackingUpdater {
+func NewTrackingUpdater(cfg *config.Config, shipmentStore *database.ShipmentStore, carrierFactory *carriers.ClientFactory, cacheManager *cache.Manager, logger *slog.Logger) *TrackingUpdater {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TrackingUpdater{
 		ctx:            ctx,
@@ -31,6 +35,7 @@ func NewTrackingUpdater(cfg *config.Config, shipmentStore *database.ShipmentStor
 		config:         cfg,
 		shipmentStore:  shipmentStore,
 		carrierFactory: carrierFactory,
+		cache:          cacheManager,
 		logger:         logger,
 	}
 }
@@ -147,46 +152,183 @@ func (u *TrackingUpdater) updateUSPSShipments() {
 
 	u.logger.Info("Found USPS shipments for auto-update", "count", len(shipments))
 
-	// Filter out recently manually refreshed shipments (respect rate limit)
-	eligibleShipments := u.filterRecentlyRefreshed(shipments)
+	u.logger.Info("Processing USPS shipments with cache-aware rate limiting", "count", len(shipments))
+
+	// Process shipments with unified cache-based rate limiting
+	u.processShipmentsWithCache(shipments)
+}
+
+// processShipmentsWithCache processes shipments with cache-aware rate limiting
+// This replaces the old filterRecentlyRefreshed approach with unified cache-based logic
+func (u *TrackingUpdater) processShipmentsWithCache(shipments []database.Shipment) {
+	apiCallCount := 0
 	
-	if len(eligibleShipments) == 0 {
-		u.logger.Debug("No eligible USPS shipments after rate limit filtering")
-		return
+	for i, shipment := range shipments {
+		if u.ctx.Err() != nil {
+			return // Service is stopping
+		}
+
+		u.logger.Debug("Processing shipment",
+			"shipment_id", shipment.ID,
+			"tracking_number", shipment.TrackingNumber,
+			"progress", fmt.Sprintf("%d/%d", i+1, len(shipments)))
+
+		// Check cache first (same as manual refresh)
+		if cachedResponse, err := u.cache.Get(shipment.ID); err == nil && cachedResponse != nil {
+			u.logger.Debug("Using cached data for auto-update",
+				"shipment_id", shipment.ID,
+				"cache_age", time.Since(cachedResponse.UpdatedAt))
+			u.processCachedResponse(&shipment, cachedResponse)
+			continue
+		}
+
+		// Check rate limiting using unified logic (no force refresh for auto-updates)
+		rateLimitResult := ratelimit.CheckRefreshRateLimit(u.config, shipment.LastManualRefresh, false)
+		if rateLimitResult.ShouldBlock {
+			u.logger.Debug("Skipping shipment due to rate limiting",
+				"shipment_id", shipment.ID,
+				"last_manual_refresh", shipment.LastManualRefresh,
+				"remaining_time", rateLimitResult.RemainingTime,
+				"reason", rateLimitResult.Reason)
+			continue
+		}
+
+		// Proceed with API call and cache the result
+		u.performAPICallAndCache(&shipment)
+		apiCallCount++
+
+		// Add delay between API calls to be respectful to the carrier API
+		// Only delay if there are more shipments to process
+		if i < len(shipments)-1 {
+			select {
+			case <-u.ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+				// Continue
+			}
+		}
 	}
 
-	u.logger.Info("Processing eligible USPS shipments", "count", len(eligibleShipments))
+	u.logger.Info("Completed shipment processing",
+		"total_shipments", len(shipments),
+		"api_calls_made", apiCallCount,
+		"cache_hits", len(shipments)-apiCallCount)
+}
 
-	// Create USPS carrier client with headless browser support
+// processCachedResponse processes a shipment using cached data
+func (u *TrackingUpdater) processCachedResponse(shipment *database.Shipment, cachedResponse *database.RefreshResponse) {
+	// Update shipment's auto-refresh timestamp to indicate it was processed
+	// but don't increment counts since this is using cached data
+	err := u.shipmentStore.UpdateAutoRefreshTracking(int64(shipment.ID), true, "")
+	if err != nil {
+		u.logger.Error("Failed to update auto-refresh tracking for cached response",
+			"shipment_id", shipment.ID,
+			"error", err)
+	} else {
+		u.logger.Info("Processed shipment using cached data",
+			"shipment_id", shipment.ID,
+			"tracking_number", shipment.TrackingNumber,
+			"cached_events", len(cachedResponse.Events))
+	}
+}
+
+// performAPICallAndCache makes an API call and caches the result
+func (u *TrackingUpdater) performAPICallAndCache(shipment *database.Shipment) {
+	// Create USPS carrier client
 	uspsClient, _, err := u.carrierFactory.CreateClient("usps")
 	if err != nil {
 		u.logger.Error("Failed to create USPS carrier client", "error", err)
+		u.handleUpdateError(shipment, err)
 		return
 	}
 
-	// Process shipments in batches
-	u.processBatches(eligibleShipments, uspsClient)
+	// Create tracking request with configurable timeout
+	ctx, cancel := context.WithTimeout(u.ctx, u.config.AutoUpdateIndividualTimeout)
+	defer cancel()
+
+	req := &carriers.TrackingRequest{
+		TrackingNumbers: []string{shipment.TrackingNumber},
+		Carrier:         "usps",
+	}
+
+	// Make API call
+	resp, err := uspsClient.Track(ctx, req)
+	if err != nil {
+		u.handleUpdateError(shipment, err)
+		return
+	}
+
+	// Process the first result if available
+	if len(resp.Results) > 0 {
+		trackingInfo := &resp.Results[0]
+		
+		// Update shipment data
+		originalStatus := shipment.Status
+		if trackingInfo.Status != "" && string(trackingInfo.Status) != shipment.Status {
+			shipment.Status = string(trackingInfo.Status)
+			shipment.IsDelivered = (trackingInfo.Status == carriers.StatusDelivered)
+		}
+
+		// Update expected delivery if provided
+		if trackingInfo.EstimatedDelivery != nil {
+			shipment.ExpectedDelivery = trackingInfo.EstimatedDelivery
+		}
+		if trackingInfo.ActualDelivery != nil && shipment.IsDelivered {
+			shipment.ExpectedDelivery = trackingInfo.ActualDelivery
+		}
+
+		// Atomically update shipment and auto-refresh tracking
+		err = u.shipmentStore.UpdateShipmentWithAutoRefresh(shipment.ID, shipment, true, "")
+		if err != nil {
+			u.logger.Error("Failed to update shipment with auto-refresh tracking",
+				"shipment_id", shipment.ID,
+				"error", err)
+			u.handleUpdateError(shipment, err)
+			return
+		}
+
+		// Cache the response for future manual refreshes
+		refreshResponse := &database.RefreshResponse{
+			ShipmentID:      shipment.ID,
+			UpdatedAt:       time.Now(),
+			EventsAdded:     len(trackingInfo.Events),
+			TotalEvents:     len(trackingInfo.Events),
+			Events:          u.convertToTrackingEvents(trackingInfo.Events),
+		}
+
+		// Populate cache (same as manual refresh)
+		err = u.cache.Set(shipment.ID, refreshResponse)
+		if err != nil {
+			u.logger.Warn("Failed to cache auto-refresh response",
+				"shipment_id", shipment.ID,
+				"error", err)
+			// Don't fail the update just because caching failed
+		}
+
+		u.logger.Info("Successfully updated and cached shipment",
+			"shipment_id", shipment.ID,
+			"tracking_number", shipment.TrackingNumber,
+			"status_change", fmt.Sprintf("%s -> %s", originalStatus, shipment.Status),
+			"events", len(trackingInfo.Events))
+	} else {
+		u.logger.Warn("No tracking results for shipment",
+			"shipment_id", shipment.ID,
+			"tracking_number", shipment.TrackingNumber)
+	}
 }
 
-// filterRecentlyRefreshed removes shipments that were manually refreshed within the rate limit window
-func (u *TrackingUpdater) filterRecentlyRefreshed(shipments []database.Shipment) []database.Shipment {
-	rateLimit := u.config.AutoUpdateRateLimit
-	cutoff := time.Now().Add(-rateLimit)
-	
-	var eligible []database.Shipment
-	for _, shipment := range shipments {
-		// Skip if manually refreshed recently
-		if shipment.LastManualRefresh != nil && shipment.LastManualRefresh.After(cutoff) {
-			u.logger.Debug("Skipping recently manually refreshed shipment",
-				"shipment_id", shipment.ID,
-				"last_manual_refresh", shipment.LastManualRefresh)
-			continue
+// convertToTrackingEvents converts carrier events to database tracking events
+func (u *TrackingUpdater) convertToTrackingEvents(events []carriers.TrackingEvent) []database.TrackingEvent {
+	dbEvents := make([]database.TrackingEvent, len(events))
+	for i, event := range events {
+		dbEvents[i] = database.TrackingEvent{
+			Timestamp:   event.Timestamp,
+			Location:    event.Location,
+			Status:      string(event.Status),
+			Description: event.Description,
 		}
-		
-		eligible = append(eligible, shipment)
 	}
-	
-	return eligible
+	return dbEvents
 }
 
 // processBatches processes shipments in batches according to USPS API limits

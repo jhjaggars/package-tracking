@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"package-tracking/internal/cache"
 	"package-tracking/internal/carriers"
 	"package-tracking/internal/config"
 	"package-tracking/internal/database"
+	"package-tracking/internal/ratelimit"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -22,7 +24,6 @@ func getTestConfig() *config.Config {
 		AutoUpdateMaxRetries:        5,
 		AutoUpdateBatchTimeout:      5 * time.Second,
 		AutoUpdateIndividualTimeout: 3 * time.Second,
-		AutoUpdateRateLimit:         1 * time.Minute, // Short for testing
 	}
 }
 
@@ -80,72 +81,66 @@ func createTestShipment(t *testing.T, db *database.DB, trackingNumber string, la
 	return shipment
 }
 
-func TestTrackingUpdater_FilterRecentlyRefreshed(t *testing.T) {
+// setupTestTrackingUpdater creates a test tracking updater with cache manager
+func setupTestTrackingUpdater(t *testing.T, cfg *config.Config, db *database.DB) *TrackingUpdater {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	factory := carriers.NewClientFactory()
+	cacheManager := cache.NewManager(db.RefreshCache, false, 5*time.Minute)
+	
+	return NewTrackingUpdater(cfg, db.Shipments, factory, cacheManager, logger)
+}
+
+func TestTrackingUpdater_UnifiedRateLimiting(t *testing.T) {
 	cfg := getTestConfig()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	factory := carriers.NewClientFactory()
-	
-	updater := NewTrackingUpdater(cfg, db.Shipments, factory, logger)
+	updater := setupTestTrackingUpdater(t, cfg, db)
 	defer updater.Stop()
 
 	now := time.Now()
 	
-	// Create test shipments with explicit rate limit testing
-	recentRefresh := now.Add(-30 * time.Second) // Within 1-minute rate limit - should be filtered
-	oldRefresh := now.Add(-2 * time.Minute)    // Outside 1-minute rate limit - should be eligible
+	// Test the unified rate limiting logic
+	recentRefresh := now.Add(-30 * time.Second) // Within 5-minute rate limit - should be blocked
+	oldRefresh := now.Add(-6 * time.Minute)    // Outside 5-minute rate limit - should be allowed
 	
-	shipment1 := createTestShipment(t, db, "RECENT123", &recentRefresh)
-	shipment2 := createTestShipment(t, db, "OLD123", &oldRefresh)
-	shipment3 := createTestShipment(t, db, "NEVER123", nil) // Never refreshed - should be eligible
-
-	shipments := []database.Shipment{*shipment1, *shipment2, *shipment3}
-	
-	// Test filtering
-	eligible := updater.filterRecentlyRefreshed(shipments)
-	
-	// Debug output to understand what's happening
-	t.Logf("Rate limit: %v", updater.config.AutoUpdateRateLimit)
-	t.Logf("Cutoff time: %v", now.Add(-updater.config.AutoUpdateRateLimit))
-	for i, s := range shipments {
-		t.Logf("Shipment %d: %s, LastManualRefresh: %v", i, s.TrackingNumber, s.LastManualRefresh)
+	// Test recent refresh (should be blocked)
+	result := ratelimit.CheckRefreshRateLimit(cfg, &recentRefresh, false)
+	if !result.ShouldBlock {
+		t.Error("Recent refresh should be blocked by rate limiting")
 	}
-	t.Logf("Eligible count: %d", len(eligible))
-	for i, s := range eligible {
-		t.Logf("Eligible %d: %s", i, s.TrackingNumber)
+	if result.Reason != "rate_limit_active" {
+		t.Errorf("Expected reason 'rate_limit_active', got '%s'", result.Reason)
 	}
 	
-	// Should filter out the recently refreshed shipment (within 1 minute)
-	// Expecting OLD123 and NEVER123 to be eligible (2 shipments)
-	if len(eligible) != 2 {
-		t.Errorf("Expected 2 eligible shipments, got %d", len(eligible))
+	// Test old refresh (should be allowed)
+	result = ratelimit.CheckRefreshRateLimit(cfg, &oldRefresh, false)
+	if result.ShouldBlock {
+		t.Error("Old refresh should not be blocked by rate limiting")
+	}
+	if result.Reason != "rate_limit_passed" {
+		t.Errorf("Expected reason 'rate_limit_passed', got '%s'", result.Reason)
 	}
 	
-	// Check that the recent one was filtered out
-	foundRecent := false
-	foundOld := false
-	foundNever := false
-	for _, shipment := range eligible {
-		if shipment.TrackingNumber == "RECENT123" {
-			foundRecent = true
-		} else if shipment.TrackingNumber == "OLD123" {
-			foundOld = true
-		} else if shipment.TrackingNumber == "NEVER123" {
-			foundNever = true
-		}
+	// Test no previous refresh (should be allowed)
+	result = ratelimit.CheckRefreshRateLimit(cfg, nil, false)
+	if result.ShouldBlock {
+		t.Error("No previous refresh should not be blocked by rate limiting")
+	}
+	if result.Reason != "no_previous_refresh" {
+		t.Errorf("Expected reason 'no_previous_refresh', got '%s'", result.Reason)
 	}
 	
-	if foundRecent {
-		t.Error("Recently refreshed shipment (RECENT123) should have been filtered out")
+	// Test forced refresh (should always be allowed)
+	result = ratelimit.CheckRefreshRateLimit(cfg, &recentRefresh, true)
+	if result.ShouldBlock {
+		t.Error("Forced refresh should never be blocked by rate limiting")
 	}
-	if !foundOld {
-		t.Error("Old refreshed shipment (OLD123) should be eligible")
+	if result.Reason != "forced_refresh" {
+		t.Errorf("Expected reason 'forced_refresh', got '%s'", result.Reason)
 	}
-	if !foundNever {
-		t.Error("Never refreshed shipment (NEVER123) should be eligible")
-	}
+	
+	t.Logf("Rate limit duration: %v", ratelimit.GetRateLimitDuration())
 }
 
 func TestTrackingUpdater_PauseResume(t *testing.T) {
@@ -153,10 +148,7 @@ func TestTrackingUpdater_PauseResume(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	factory := carriers.NewClientFactory()
-	
-	updater := NewTrackingUpdater(cfg, db.Shipments, factory, logger)
+	updater := setupTestTrackingUpdater(t, cfg, db)
 	defer updater.Stop()
 
 	// Test initial state (should be running)
@@ -185,16 +177,12 @@ func TestTrackingUpdater_ConfigurableTimeouts(t *testing.T) {
 		AutoUpdateMaxRetries:        5,
 		AutoUpdateBatchTimeout:      100 * time.Millisecond, // Very short for testing
 		AutoUpdateIndividualTimeout: 50 * time.Millisecond,  // Very short for testing
-		AutoUpdateRateLimit:         10 * time.Second,
 	}
 	
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	factory := carriers.NewClientFactory()
-	
-	updater := NewTrackingUpdater(cfg, db.Shipments, factory, logger)
+	updater := setupTestTrackingUpdater(t, cfg, db)
 	defer updater.Stop()
 
 	// Test that the configuration values are used
@@ -205,57 +193,47 @@ func TestTrackingUpdater_ConfigurableTimeouts(t *testing.T) {
 	if updater.config.AutoUpdateIndividualTimeout != 50*time.Millisecond {
 		t.Errorf("Expected individual timeout 50ms, got %v", updater.config.AutoUpdateIndividualTimeout)
 	}
-	
-	if updater.config.AutoUpdateRateLimit != 10*time.Second {
-		t.Errorf("Expected rate limit 10s, got %v", updater.config.AutoUpdateRateLimit)
-	}
 }
 
-func TestTrackingUpdater_RateLimitConfiguration(t *testing.T) {
-	cfg := &config.Config{
-		AutoUpdateRateLimit: 30 * time.Second, // Custom rate limit
-	}
-	
+func TestTrackingUpdater_CacheIntegration(t *testing.T) {
+	cfg := getTestConfig()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	factory := carriers.NewClientFactory()
-	
-	updater := NewTrackingUpdater(cfg, db.Shipments, factory, logger)
+	updater := setupTestTrackingUpdater(t, cfg, db)
 	defer updater.Stop()
 
-	now := time.Now()
-	
-	// Create shipments with different refresh times relative to custom rate limit
-	recentRefresh := now.Add(-15 * time.Second) // Within 30-second rate limit - should be filtered
-	oldRefresh := now.Add(-45 * time.Second)    // Outside 30-second rate limit - should be eligible
-	
-	shipment1 := createTestShipment(t, db, "RECENT123", &recentRefresh)
-	shipment2 := createTestShipment(t, db, "OLD123", &oldRefresh)
+	// Create a test shipment
+	shipment := createTestShipment(t, db, "TEST123", nil)
 
-	shipments := []database.Shipment{*shipment1, *shipment2}
-	
-	// Test filtering with custom rate limit
-	eligible := updater.filterRecentlyRefreshed(shipments)
-	
-	// Debug output
-	t.Logf("Custom rate limit: %v", updater.config.AutoUpdateRateLimit)
-	t.Logf("Cutoff time: %v", now.Add(-updater.config.AutoUpdateRateLimit))
-	for i, s := range shipments {
-		t.Logf("Shipment %d: %s, LastManualRefresh: %v", i, s.TrackingNumber, s.LastManualRefresh)
+	// Create a cached response
+	cachedResponse := &database.RefreshResponse{
+		ShipmentID:      shipment.ID,
+		UpdatedAt:       time.Now(),
+		EventsAdded:     2,
+		TotalEvents:     3,
+		Events:          []database.TrackingEvent{},
 	}
-	t.Logf("Eligible count: %d", len(eligible))
-	
-	// Should filter out the recently refreshed shipment based on 30-second limit
-	if len(eligible) != 1 {
-		t.Errorf("Expected 1 eligible shipment, got %d", len(eligible))
-		return
+
+	// Cache the response
+	err := updater.cache.Set(shipment.ID, cachedResponse)
+	if err != nil {
+		t.Fatalf("Failed to cache response: %v", err)
 	}
-	
-	if eligible[0].TrackingNumber != "OLD123" {
-		t.Errorf("Expected OLD123 to be eligible, got %s", eligible[0].TrackingNumber)
+
+	// Verify cache retrieval
+	retrieved, err := updater.cache.Get(shipment.ID)
+	if err != nil {
+		t.Fatalf("Failed to retrieve cached response: %v", err)
 	}
+	if retrieved == nil {
+		t.Fatal("Expected cached response, got nil")
+	}
+	if retrieved.ShipmentID != shipment.ID {
+		t.Errorf("Expected shipment ID %d, got %d", shipment.ID, retrieved.ShipmentID)
+	}
+
+	t.Logf("Cache integration test passed: cached response retrieved successfully")
 }
 
 // Test context timeout handling indirectly by checking configuration
@@ -263,16 +241,12 @@ func TestTrackingUpdater_ContextConfiguration(t *testing.T) {
 	cfg := &config.Config{
 		AutoUpdateBatchTimeout:      2 * time.Second,
 		AutoUpdateIndividualTimeout: 1 * time.Second,
-		AutoUpdateRateLimit:         30 * time.Second,
 	}
 	
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	factory := carriers.NewClientFactory()
-	
-	updater := NewTrackingUpdater(cfg, db.Shipments, factory, logger)
+	updater := setupTestTrackingUpdater(t, cfg, db)
 	defer updater.Stop()
 
 	// Verify the updater uses the configured timeouts

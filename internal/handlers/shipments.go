@@ -13,6 +13,7 @@ import (
 
 	"package-tracking/internal/cache"
 	"package-tracking/internal/carriers"
+	"package-tracking/internal/ratelimit"
 	"package-tracking/internal/database"
 
 	"github.com/go-chi/chi/v5"
@@ -368,14 +369,11 @@ func (h *ShipmentHandler) RefreshShipment(w http.ResponseWriter, r *http.Request
 		cacheStatus = "miss"
 	}
 
-	// Check rate limiting - 5 minutes between refreshes (unless disabled or forced)
-	if !h.config.GetDisableRateLimit() && !forceRefresh && shipment.LastManualRefresh != nil {
-		timeSinceLastRefresh := time.Since(*shipment.LastManualRefresh)
-		if timeSinceLastRefresh < 5*time.Minute {
-			remainingTime := 5*time.Minute - timeSinceLastRefresh
-			http.Error(w, fmt.Sprintf("Rate limit exceeded. Please wait %v before refreshing again", remainingTime.Truncate(time.Second)), http.StatusTooManyRequests)
-			return
-		}
+	// Check rate limiting using unified rate limiting logic
+	rateLimitResult := ratelimit.CheckRefreshRateLimit(h.config, shipment.LastManualRefresh, forceRefresh)
+	if rateLimitResult.ShouldBlock {
+		http.Error(w, fmt.Sprintf("Rate limit exceeded. Please wait %v before refreshing again", rateLimitResult.RemainingTime.Truncate(time.Second)), http.StatusTooManyRequests)
+		return
 	}
 
 	// Create client for tracking - prefer API for FedEx, fallback to headless/scraping for others

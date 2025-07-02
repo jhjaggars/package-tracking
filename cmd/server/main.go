@@ -94,8 +94,8 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	// Initialize tracking updater
-	trackingUpdater := workers.NewTrackingUpdater(cfg, db.Shipments, carrierFactory, logger)
+	// Initialize tracking updater with cache manager for unified rate limiting
+	trackingUpdater := workers.NewTrackingUpdater(cfg, db.Shipments, carrierFactory, cacheManager, logger)
 	defer trackingUpdater.Stop()
 	
 	// Start the tracking updater

@@ -45,7 +45,6 @@ type Config struct {
 	// Timeout configuration
 	AutoUpdateBatchTimeout      time.Duration
 	AutoUpdateIndividualTimeout time.Duration
-	AutoUpdateRateLimit         time.Duration
 }
 
 // Load loads configuration from environment variables with defaults
@@ -88,7 +87,6 @@ func Load() (*Config, error) {
 		// Timeout configuration
 		AutoUpdateBatchTimeout:      getEnvDurationOrDefault("AUTO_UPDATE_BATCH_TIMEOUT", "60s"),
 		AutoUpdateIndividualTimeout: getEnvDurationOrDefault("AUTO_UPDATE_INDIVIDUAL_TIMEOUT", "30s"),
-		AutoUpdateRateLimit:         getEnvDurationOrDefault("AUTO_UPDATE_RATE_LIMIT", "5m"),
 	}
 
 	// Validate configuration
@@ -151,9 +149,6 @@ func (c *Config) validate() error {
 	}
 	if c.AutoUpdateIndividualTimeout <= 0 {
 		return fmt.Errorf("auto update individual timeout must be positive")
-	}
-	if c.AutoUpdateRateLimit <= 0 {
-		return fmt.Errorf("auto update rate limit must be positive")
 	}
 
 	return nil

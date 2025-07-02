@@ -183,7 +183,6 @@ func TestValidate(t *testing.T) {
 			AutoUpdateMaxRetries:        3,
 			AutoUpdateBatchTimeout:      30 * time.Second,
 			AutoUpdateIndividualTimeout: 10 * time.Second,
-			AutoUpdateRateLimit:         5 * time.Minute,
 		}
 
 		if err := config.validate(); err != nil {
