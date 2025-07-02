@@ -130,6 +130,50 @@ func (m *Manager) Delete(shipmentID int) error {
 	return nil
 }
 
+// ForceInvalidate removes a cached response to force a fresh fetch
+// Returns the age of the cache entry that was invalidated, or nil if no cache existed
+func (m *Manager) ForceInvalidate(shipmentID int) (*time.Duration, error) {
+	if m.disabled {
+		return nil, nil // Cache disabled, nothing to invalidate
+	}
+	
+	var cacheAge *time.Duration
+	
+	// Check if there was a cache entry and get its age
+	if value, ok := m.memory.Load(shipmentID); ok {
+		cached := value.(*CachedResponse)
+		age := time.Since(cached.Response.UpdatedAt)
+		cacheAge = &age
+	} else {
+		// Check database for cache age
+		response, err := m.store.Get(shipmentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check database cache age: %w", err)
+		}
+		if response != nil {
+			age := time.Since(response.UpdatedAt)
+			cacheAge = &age
+		}
+	}
+	
+	// Delete the cache entry
+	if err := m.Delete(shipmentID); err != nil {
+		return cacheAge, fmt.Errorf("failed to invalidate cache: %w", err)
+	}
+	
+	return cacheAge, nil
+}
+
+// IsEnabled returns true if caching is enabled
+func (m *Manager) IsEnabled() bool {
+	return !m.disabled
+}
+
+// GetTTL returns the cache TTL duration
+func (m *Manager) GetTTL() time.Duration {
+	return m.ttl
+}
+
 // loadFromDatabase loads all non-expired cache entries from database into memory
 func (m *Manager) loadFromDatabase() error {
 	entries, err := m.store.LoadAll()
