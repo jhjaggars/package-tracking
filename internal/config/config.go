@@ -41,6 +41,11 @@ type Config struct {
 	AutoUpdateCutoffDays int
 	AutoUpdateBatchSize  int
 	AutoUpdateMaxRetries int
+
+	// Timeout configuration
+	AutoUpdateBatchTimeout      time.Duration
+	AutoUpdateIndividualTimeout time.Duration
+	AutoUpdateRateLimit         time.Duration
 }
 
 // Load loads configuration from environment variables with defaults
@@ -79,6 +84,11 @@ func Load() (*Config, error) {
 		AutoUpdateCutoffDays: getEnvIntOrDefault("AUTO_UPDATE_CUTOFF_DAYS", 30),
 		AutoUpdateBatchSize:  getEnvIntOrDefault("AUTO_UPDATE_BATCH_SIZE", 10),
 		AutoUpdateMaxRetries: getEnvIntOrDefault("AUTO_UPDATE_MAX_RETRIES", 10),
+
+		// Timeout configuration
+		AutoUpdateBatchTimeout:      getEnvDurationOrDefault("AUTO_UPDATE_BATCH_TIMEOUT", "60s"),
+		AutoUpdateIndividualTimeout: getEnvDurationOrDefault("AUTO_UPDATE_INDIVIDUAL_TIMEOUT", "30s"),
+		AutoUpdateRateLimit:         getEnvDurationOrDefault("AUTO_UPDATE_RATE_LIMIT", "5m"),
 	}
 
 	// Validate configuration
@@ -133,6 +143,17 @@ func (c *Config) validate() error {
 	}
 	if c.AutoUpdateMaxRetries < 0 {
 		return fmt.Errorf("auto update max retries must be non-negative")
+	}
+
+	// Validate timeout configuration
+	if c.AutoUpdateBatchTimeout <= 0 {
+		return fmt.Errorf("auto update batch timeout must be positive")
+	}
+	if c.AutoUpdateIndividualTimeout <= 0 {
+		return fmt.Errorf("auto update individual timeout must be positive")
+	}
+	if c.AutoUpdateRateLimit <= 0 {
+		return fmt.Errorf("auto update rate limit must be positive")
 	}
 
 	return nil

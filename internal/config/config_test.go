@@ -174,11 +174,16 @@ func TestAddress(t *testing.T) {
 func TestValidate(t *testing.T) {
 	t.Run("ValidConfig", func(t *testing.T) {
 		config := &Config{
-			ServerPort:     "8080",
-			ServerHost:     "localhost",
-			DBPath:         "./test.db",
-			UpdateInterval: time.Hour,
-			LogLevel:       "info",
+			ServerPort:                  "8080",  
+			ServerHost:                  "localhost",
+			DBPath:                      "./test.db",
+			UpdateInterval:              time.Hour,
+			LogLevel:                    "info",
+			AutoUpdateBatchSize:         5, // Must be between 1 and 10
+			AutoUpdateMaxRetries:        3,
+			AutoUpdateBatchTimeout:      30 * time.Second,
+			AutoUpdateIndividualTimeout: 10 * time.Second,
+			AutoUpdateRateLimit:         5 * time.Minute,
 		}
 
 		if err := config.validate(); err != nil {

@@ -170,7 +170,7 @@ func (u *TrackingUpdater) updateUSPSShipments() {
 
 // filterRecentlyRefreshed removes shipments that were manually refreshed within the rate limit window
 func (u *TrackingUpdater) filterRecentlyRefreshed(shipments []database.Shipment) []database.Shipment {
-	rateLimit := 5 * time.Minute // Match the manual refresh rate limit
+	rateLimit := u.config.AutoUpdateRateLimit
 	cutoff := time.Now().Add(-rateLimit)
 	
 	var eligible []database.Shipment
@@ -240,8 +240,8 @@ func (u *TrackingUpdater) processBatch(batch []database.Shipment, uspsClient car
 
 	u.logger.Debug("Calling USPS carrier for batch update", "tracking_numbers", trackingNumbers)
 
-	// Create tracking request
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Create tracking request with configurable timeout
+	ctx, cancel := context.WithTimeout(u.ctx, u.config.AutoUpdateBatchTimeout)
 	defer cancel()
 
 	req := &carriers.TrackingRequest{
@@ -278,8 +278,8 @@ func (u *TrackingUpdater) processIndividually(shipments []database.Shipment, usp
 
 		u.logger.Debug("Processing individual shipment", "shipment_id", shipment.ID, "tracking_number", shipment.TrackingNumber)
 
-		// Create individual tracking request
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Create individual tracking request with configurable timeout
+		ctx, cancel := context.WithTimeout(u.ctx, u.config.AutoUpdateIndividualTimeout)
 		req := &carriers.TrackingRequest{
 			TrackingNumbers: []string{shipment.TrackingNumber},
 			Carrier:         "usps",
@@ -333,22 +333,14 @@ func (u *TrackingUpdater) processTrackingInfo(shipment *database.Shipment, info 
 		shipment.ExpectedDelivery = info.ActualDelivery
 	}
 
-	// Update the shipment in database
-	err := u.shipmentStore.Update(shipment.ID, shipment)
+	// Atomically update shipment and auto-refresh tracking
+	err := u.shipmentStore.UpdateShipmentWithAutoRefresh(shipment.ID, shipment, true, "")
 	if err != nil {
-		u.logger.Error("Failed to update shipment",
+		u.logger.Error("Failed to update shipment with auto-refresh tracking",
 			"shipment_id", shipment.ID,
 			"error", err)
 		u.handleUpdateError(shipment, err)
 		return
-	}
-
-	// Record successful auto-refresh
-	err = u.shipmentStore.UpdateAutoRefreshTracking(int64(shipment.ID), true, "")
-	if err != nil {
-		u.logger.Error("Failed to update auto-refresh tracking",
-			"shipment_id", shipment.ID,
-			"error", err)
 	}
 
 	u.logger.Info("Successfully updated shipment",

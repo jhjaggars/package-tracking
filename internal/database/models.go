@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -397,6 +398,80 @@ func (s *ShipmentStore) UpdateAutoRefreshTracking(id int64, success bool, errorM
 		return sql.ErrNoRows
 	}
 	
+	return nil
+}
+
+// UpdateShipmentWithAutoRefresh atomically updates shipment data and auto-refresh tracking
+// This prevents race conditions between the two separate update operations
+func (s *ShipmentStore) UpdateShipmentWithAutoRefresh(id int, shipment *Shipment, success bool, errorMsg string) error {
+	// Start transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() // Will be ignored if tx.Commit() succeeds
+
+	// Update main shipment data
+	updateQuery := `UPDATE shipments SET tracking_number = ?, carrier = ?, description = ?, 
+			  status = ?, expected_delivery = ?, is_delivered = ?, last_manual_refresh = ?, 
+			  manual_refresh_count = ?, last_auto_refresh = ?, auto_refresh_count = ?,
+			  auto_refresh_enabled = ?, auto_refresh_error = ?, auto_refresh_fail_count = ?,
+			  updated_at = CURRENT_TIMESTAMP 
+			  WHERE id = ?`
+	
+	result, err := tx.Exec(updateQuery, shipment.TrackingNumber, shipment.Carrier,
+		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
+		shipment.IsDelivered, shipment.LastManualRefresh, shipment.ManualRefreshCount,
+		shipment.LastAutoRefresh, shipment.AutoRefreshCount, shipment.AutoRefreshEnabled,
+		shipment.AutoRefreshError, shipment.AutoRefreshFailCount, id)
+	
+	if err != nil {
+		return fmt.Errorf("failed to update shipment: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	// Update auto-refresh tracking fields
+	var trackingQuery string
+	var trackingArgs []interface{}
+	
+	if success {
+		// Reset fail count on success
+		trackingQuery = `UPDATE shipments SET 
+				 last_auto_refresh = CURRENT_TIMESTAMP,
+				 auto_refresh_count = auto_refresh_count + 1,
+				 auto_refresh_fail_count = 0,
+				 auto_refresh_error = NULL,
+				 updated_at = CURRENT_TIMESTAMP 
+				 WHERE id = ?`
+		trackingArgs = []interface{}{id}
+	} else {
+		// Increment fail count on failure
+		trackingQuery = `UPDATE shipments SET 
+				 auto_refresh_fail_count = auto_refresh_fail_count + 1,
+				 auto_refresh_error = ?,
+				 updated_at = CURRENT_TIMESTAMP 
+				 WHERE id = ?`
+		trackingArgs = []interface{}{errorMsg, id}
+	}
+	
+	_, err = tx.Exec(trackingQuery, trackingArgs...)
+	if err != nil {
+		return fmt.Errorf("failed to update auto-refresh tracking: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return nil
 }
 
