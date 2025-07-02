@@ -16,6 +16,7 @@ type Config struct {
 	ServerURL      string        `json:"server_url"`
 	Format         string        `json:"format"`
 	Quiet          bool          `json:"quiet"`
+	NoColor        bool          `json:"no_color"`
 	RequestTimeout time.Duration `json:"request_timeout"`
 }
 
@@ -25,6 +26,7 @@ func DefaultConfig() *Config {
 		ServerURL:      "http://localhost:8080",
 		Format:         "table",
 		Quiet:          false,
+		NoColor:        false,
 		RequestTimeout: 180 * time.Second, // Extended for SPA scraping (3 minutes)
 	}
 }
@@ -81,6 +83,10 @@ func (c *Config) loadFromEnv() {
 	}
 	if os.Getenv("PACKAGE_TRACKER_QUIET") == "true" {
 		c.Quiet = true
+	}
+	// Support both NO_COLOR and PACKAGE_TRACKER_NO_COLOR
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("PACKAGE_TRACKER_NO_COLOR") == "true" {
+		c.NoColor = true
 	}
 	if timeoutStr := os.Getenv("PACKAGE_TRACKER_TIMEOUT"); timeoutStr != "" {
 		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil && timeoutSec > 0 {
