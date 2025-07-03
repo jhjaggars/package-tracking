@@ -38,6 +38,10 @@ type Config struct {
 	DisableRateLimit bool
 	DisableCache     bool
 
+	// Admin authentication
+	DisableAdminAuth bool
+	AdminAPIKey      string
+
 	// Auto-update configuration
 	AutoUpdateEnabled           bool
 	AutoUpdateCutoffDays        int
@@ -89,6 +93,10 @@ func Load() (*Config, error) {
 		// Development/testing flags
 		DisableRateLimit: getEnvBoolOrDefault("DISABLE_RATE_LIMIT", false),
 		DisableCache:     getEnvBoolOrDefault("DISABLE_CACHE", false),
+
+		// Admin authentication
+		DisableAdminAuth: getEnvBoolOrDefault("DISABLE_ADMIN_AUTH", false),
+		AdminAPIKey:      os.Getenv("ADMIN_API_KEY"),
 
 		// Auto-update configuration
 		AutoUpdateEnabled:          getEnvBoolOrDefault("AUTO_UPDATE_ENABLED", true),
@@ -180,6 +188,11 @@ func (c *Config) validate() error {
 		return fmt.Errorf("auto update individual timeout must be positive")
 	}
 
+	// Validate admin authentication
+	if !c.DisableAdminAuth && c.AdminAPIKey == "" {
+		return fmt.Errorf("ADMIN_API_KEY is required when admin authentication is enabled (set DISABLE_ADMIN_AUTH=true to disable)")
+	}
+
 	return nil
 }
 
@@ -226,6 +239,27 @@ func (c *Config) GetUPSClientSecret() string {
 // GetCacheTTL returns the cache TTL duration
 func (c *Config) GetCacheTTL() time.Duration {
 	return c.CacheTTL
+}
+
+// GetDisableAdminAuth returns the admin authentication disable flag
+func (c *Config) GetDisableAdminAuth() bool {
+	return c.DisableAdminAuth
+}
+
+// GetAdminAPIKey returns the admin API key (redacted for logging)
+func (c *Config) GetAdminAPIKey() string {
+	return c.AdminAPIKey
+}
+
+// GetAdminAPIKeyForLogging returns a redacted version of the admin API key for safe logging
+func (c *Config) GetAdminAPIKeyForLogging() string {
+	if c.AdminAPIKey == "" {
+		return "(not set)"
+	}
+	if len(c.AdminAPIKey) <= 8 {
+		return "***"
+	}
+	return c.AdminAPIKey[:4] + "***" + c.AdminAPIKey[len(c.AdminAPIKey)-4:]
 }
 
 // getEnvOrDefault returns environment variable value or default
