@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-Package tracking system built in Go with SQLite. This is "System 1" of a planned two-part system - a core tracking system with manual entry and real-time carrier API integration. System 2 (future) will add AI-powered email processing for automatic shipment detection.
+Package tracking system built in Go with SQLite. Comprehensive package tracking with manual entry, real-time carrier API integration, and automated email processing for tracking number extraction. The system includes both a core tracking service and an email processing daemon.
 
 ## Commands
 
@@ -14,6 +14,9 @@ go build -o bin/server cmd/server/main.go
 
 # Build the CLI client
 go build -o bin/package-tracker cmd/cli/main.go
+
+# Build the email tracker
+go build -o bin/email-tracker cmd/email-tracker/main.go
 
 # Run the server directly
 go run cmd/server/main.go
@@ -82,17 +85,23 @@ NO_COLOR=1 ./bin/package-tracker list
 ### Project Structure
 - `cmd/server/main.go` - Application entry point with server setup and graceful shutdown
 - `cmd/cli/main.go` - CLI client entry point for interacting with the API
+- `cmd/email-tracker/main.go` - Email processing daemon for automatic tracking number extraction
 - `internal/config/` - Configuration management with environment variable support
 - `internal/database/` - SQLite database layer with models and stores
 - `internal/handlers/` - HTTP handlers for REST API endpoints
 - `internal/server/` - HTTP server setup, routing, and middleware
 - `internal/cli/` - CLI client configuration, HTTP client, and output formatting
+- `internal/email/` - Email client interfaces and Gmail API integration
+- `internal/parser/` - Tracking number extraction and validation
+- `internal/workers/` - Background processing services (tracking updates, email processing)
 
 ### Core Components
 1. **Config System**: Environment-based configuration with validation
 2. **Database Layer**: SQLite with prepared statements and proper error handling
 3. **HTTP Server**: REST API with middleware chain (logging, recovery, CORS, security)
-4. **Graceful Shutdown**: Signal handling for clean server termination
+4. **Email Processing**: Gmail API integration with automated tracking number extraction
+5. **Tracking Parser**: Multi-carrier tracking number recognition and validation
+6. **Graceful Shutdown**: Signal handling for clean server termination
 
 ### Database Schema
 Main entities:
@@ -188,6 +197,48 @@ The system supports automatic tracking updates for UPS shipments alongside exist
 - Configure `UPS_AUTO_UPDATE_CUTOFF_DAYS` for UPS-specific cutoff (defaults to global setting)
 - Set `AUTO_UPDATE_FAILURE_THRESHOLD` to control when shipments are disabled due to failures
 
+### Email Tracking Workflow
+The system includes automated email processing for Gmail accounts to extract tracking numbers and create shipments:
+
+**Features:**
+- Gmail API integration with OAuth2 authentication
+- Intelligent tracking number extraction using regex patterns and optional LLM enhancement
+- Support for UPS, USPS, FedEx, and DHL tracking formats
+- Duplicate email detection and processing state management
+- Configurable search queries and filtering
+- Dry-run mode for testing without creating shipments
+- Graceful error handling and retry logic
+
+**Email Tracker Daemon:**
+```bash
+# Build and run email tracker
+go build -o bin/email-tracker cmd/email-tracker/main.go
+./bin/email-tracker
+
+# Example with configuration
+export GMAIL_CLIENT_ID="your-client-id"
+export GMAIL_CLIENT_SECRET="your-client-secret"
+export GMAIL_REFRESH_TOKEN="your-refresh-token"
+export EMAIL_API_URL="http://localhost:8080"
+./bin/email-tracker
+```
+
+**Key Environment Variables:**
+- `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` - Gmail OAuth2 credentials
+- `GMAIL_SEARCH_QUERY` - Custom Gmail search query (default: shipping emails from major carriers)
+- `EMAIL_CHECK_INTERVAL` - How often to check for new emails (default: 5m)
+- `EMAIL_DRY_RUN` - Extract tracking numbers without creating shipments (default: false)
+- `EMAIL_STATE_DB_PATH` - SQLite database for tracking processed emails (default: ./email-state.db)
+- `EMAIL_API_URL` - Package tracking API endpoint (default: http://localhost:8080)
+
+**Processing Workflow:**
+1. Searches Gmail using configurable query patterns
+2. Extracts tracking numbers from email content (subject, body, attachments)
+3. Validates tracking numbers against carrier-specific patterns
+4. Creates shipments via REST API
+5. Marks emails as processed to avoid duplicates
+6. Maintains processing statistics and error tracking
+
 ### Environment Variables
 Configuration via environment variables with sensible defaults.
 
@@ -276,9 +327,23 @@ The CLI includes enhanced visual styling using the Charm ecosystem:
 - **Error Handling**: Enhanced detection distinguishes between bot detection, server errors, and legitimate tracking failures
 - **Performance**: API calls complete in ~2 seconds vs ~96 seconds for scraping
 
-## Future Plans
-This is Phase 1 of a larger system. Future phases will add:
-- Web frontend with HTML templates
-- Carrier API integrations for real-time tracking
-- Background service for automatic updates
-- AI email processing system (System 2)
+## Current System Features
+The package tracking system includes:
+- ✅ Core REST API for shipment management
+- ✅ CLI client for command-line operations
+- ✅ Multiple carrier support (UPS, USPS, FedEx, DHL)
+- ✅ Background automatic tracking updates
+- ✅ Email processing daemon with Gmail integration
+- ✅ Intelligent tracking number extraction
+- ✅ Web frontend with modern React UI
+- ✅ Caching and rate limiting
+- ✅ Admin authentication and controls
+
+## Future Enhancements
+Potential future improvements:
+- IMAP fallback support for email processing
+- Additional LLM providers for enhanced parsing
+- Mobile application
+- Advanced analytics and reporting
+- Multi-language support
+- Additional carrier integrations

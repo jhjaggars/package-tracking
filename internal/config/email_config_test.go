@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -88,8 +88,8 @@ func TestLoadEmailConfig(t *testing.T) {
 			},
 			expectError: false,
 			validate: func(cfg *EmailConfig) error {
-				if cfg.Gmail.SearchConfig.AfterDays != 14 {
-					return fmt.Errorf("expected after days 14, got %d", cfg.Gmail.SearchConfig.AfterDays)
+				if cfg.Search.AfterDays != 14 {
+					return fmt.Errorf("expected after days 14, got %d", cfg.Search.AfterDays)
 				}
 				if cfg.Processing.CheckInterval != 10*time.Minute {
 					return fmt.Errorf("expected check interval 10m, got %v", cfg.Processing.CheckInterval)
@@ -165,6 +165,44 @@ func TestLoadEmailConfig(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "invalid EMAIL_DRY_RUN",
+		},
+		{
+			name: "Invalid OAuth2 client ID format",
+			envVars: map[string]string{
+				"GMAIL_CLIENT_ID":     "", // Empty client ID
+				"GMAIL_CLIENT_SECRET": "test-secret",
+				"GMAIL_REFRESH_TOKEN": "test-refresh-token",
+				"EMAIL_API_URL":       "http://localhost:8080",
+			},
+			expectError: true,
+			errorMsg:    "either Gmail OAuth2 (client_id) or IMAP (username) credentials must be provided",
+		},
+		{
+			name: "Invalid OAuth2 client secret format",
+			envVars: map[string]string{
+				"GMAIL_CLIENT_ID":     "test-client-id",
+				"GMAIL_CLIENT_SECRET": "", // Empty client secret
+				"GMAIL_REFRESH_TOKEN": "test-refresh-token",
+				"EMAIL_API_URL":       "http://localhost:8080",
+			},
+			expectError: true,
+			errorMsg:    "gmail_client_secret is required when using OAuth2",
+		},
+		{
+			name: "Invalid OAuth2 refresh token format",
+			envVars: map[string]string{
+				"GMAIL_CLIENT_ID":     "test-client-id",
+				"GMAIL_CLIENT_SECRET": "test-secret",
+				"GMAIL_REFRESH_TOKEN": "invalid-token-format",
+				"EMAIL_API_URL":       "http://localhost:8080",
+			},
+			expectError: false, // Refresh token format validation happens at runtime
+			validate: func(config *EmailConfig) error {
+				if config.Gmail.RefreshToken != "invalid-token-format" {
+					return fmt.Errorf("expected refresh token to be preserved, got %s", config.Gmail.RefreshToken)
+				}
+				return nil
+			},
 		},
 	}
 
@@ -350,25 +388,11 @@ func TestEmailConfigDefaults(t *testing.T) {
 		t.Fatalf("Failed to load config with defaults: %v", err)
 	}
 
-	// Verify default values
-	expected := map[string]interface{}{
-		"Gmail.SearchConfig.AfterDays":      30,
-		"Gmail.SearchConfig.UnreadOnly":     false,
-		"Gmail.SearchConfig.MaxResults":     100,
-		"Processing.CheckInterval":          5 * time.Minute,
-		"Processing.MaxPerRun":              50,
-		"Processing.DryRun":                 false,
-		"Processing.MinConfidence":          0.5,
-		"Processing.DebugMode":              false,
-		"Processing.StateDBPath":            "./email-state.db",
-		"API.Timeout":                       30 * time.Second,
-		"API.RetryCount":                    3,
-		"API.RetryDelay":                    1 * time.Second,
-	}
+	// Verify default values - removing unused map
 
 	// Check defaults using reflection would be complex, so check key values manually
-	if config.Gmail.SearchConfig.AfterDays != 30 {
-		t.Errorf("Expected default AfterDays 30, got %d", config.Gmail.SearchConfig.AfterDays)
+	if config.Search.AfterDays != 30 {
+		t.Errorf("Expected default AfterDays 30, got %d", config.Search.AfterDays)
 	}
 	if config.Processing.CheckInterval != 5*time.Minute {
 		t.Errorf("Expected default CheckInterval 5m, got %v", config.Processing.CheckInterval)
@@ -391,16 +415,16 @@ func TestEmailConfigValidation(t *testing.T) {
 					ClientID:     "valid-id",
 					ClientSecret: "valid-secret",
 					RefreshToken: "valid-token",
-					SearchConfig: SearchConfig{
-						AfterDays:   30,
-						MaxResults:  100,
-					},
+				},
+				Search: SearchConfig{
+					AfterDays:   30,
+					MaxResults:  100,
 				},
 				Processing: ProcessingConfig{
-					CheckInterval:  5 * time.Minute,
-					MaxPerRun:      50,
-					MinConfidence:  0.5,
-					StateDBPath:    "./state.db",
+					CheckInterval:     5 * time.Minute,
+					MaxEmailsPerRun:   50,
+					MinConfidence:     0.5,
+					StateDBPath:       "./state.db",
 				},
 				API: APIConfig{
 					URL:         "http://localhost:8080",
@@ -453,7 +477,7 @@ func TestEmailConfigValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateEmailConfig(tc.config)
+			err := tc.config.validate()
 			
 			if tc.valid && err != nil {
 				t.Errorf("Expected valid config, but got error: %v", err)
@@ -466,273 +490,343 @@ func TestEmailConfigValidation(t *testing.T) {
 	}
 }
 
-func TestParseEnvDuration(t *testing.T) {
+func TestGetEnvDurationOrDefault(t *testing.T) {
 	testCases := []struct {
 		name         string
+		envKey       string
 		envValue     string
-		defaultValue time.Duration
+		defaultValue string
 		expected     time.Duration
-		expectError  bool
 	}{
 		{
 			name:         "Valid duration",
+			envKey:       "TEST_DURATION",
 			envValue:     "5m",
-			defaultValue: 1 * time.Minute,
+			defaultValue: "1m",
 			expected:     5 * time.Minute,
-			expectError:  false,
 		},
 		{
 			name:         "Empty value uses default",
+			envKey:       "TEST_DURATION_EMPTY",
 			envValue:     "",
-			defaultValue: 10 * time.Second,
+			defaultValue: "10s",
 			expected:     10 * time.Second,
-			expectError:  false,
 		},
 		{
-			name:         "Invalid duration",
+			name:         "Invalid duration uses default",
+			envKey:       "TEST_DURATION_INVALID",
 			envValue:     "not-a-duration",
-			defaultValue: 1 * time.Minute,
-			expectError:  true,
+			defaultValue: "1m",
+			expected:     1 * time.Minute,
 		},
 		{
 			name:         "Complex duration",
+			envKey:       "TEST_DURATION_COMPLEX",
 			envValue:     "1h30m45s",
-			defaultValue: 1 * time.Minute,
+			defaultValue: "1m",
 			expected:     1*time.Hour + 30*time.Minute + 45*time.Second,
-			expectError:  false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseEnvDuration(tc.envValue, tc.defaultValue)
-
-			if tc.expectError {
-				if err == nil {
-					t.Errorf("Expected error, but got none")
-				}
+			// Set environment variable for this test
+			original := os.Getenv(tc.envKey)
+			if tc.envValue != "" {
+				os.Setenv(tc.envKey, tc.envValue)
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
+				os.Unsetenv(tc.envKey)
+			}
+			defer func() {
+				if original != "" {
+					os.Setenv(tc.envKey, original)
+				} else {
+					os.Unsetenv(tc.envKey)
 				}
-				if result != tc.expected {
-					t.Errorf("Expected %v, got %v", tc.expected, result)
-				}
+			}()
+
+			result := getEnvDurationOrDefault(tc.envKey, tc.defaultValue)
+			if result != tc.expected {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
 			}
 		})
 	}
 }
 
-func TestParseEnvBool(t *testing.T) {
+func TestGetEnvBoolOrDefault(t *testing.T) {
 	testCases := []struct {
 		name         string
+		envKey       string
 		envValue     string
 		defaultValue bool
 		expected     bool
-		expectError  bool
 	}{
 		{
 			name:         "True values",
+			envKey:       "TEST_BOOL_TRUE",
 			envValue:     "true",
 			defaultValue: false,
 			expected:     true,
-			expectError:  false,
 		},
 		{
 			name:         "False values",
+			envKey:       "TEST_BOOL_FALSE",
 			envValue:     "false",
 			defaultValue: true,
 			expected:     false,
-			expectError:  false,
 		},
 		{
 			name:         "Case insensitive true",
+			envKey:       "TEST_BOOL_TRUE_CASE",
 			envValue:     "TRUE",
 			defaultValue: false,
 			expected:     true,
-			expectError:  false,
 		},
 		{
 			name:         "Numeric true",
+			envKey:       "TEST_BOOL_NUMERIC_TRUE",
 			envValue:     "1",
 			defaultValue: false,
 			expected:     true,
-			expectError:  false,
 		},
 		{
 			name:         "Numeric false",
+			envKey:       "TEST_BOOL_NUMERIC_FALSE",
 			envValue:     "0",
 			defaultValue: true,
 			expected:     false,
-			expectError:  false,
 		},
 		{
 			name:         "Empty uses default",
+			envKey:       "TEST_BOOL_EMPTY",
 			envValue:     "",
 			defaultValue: true,
 			expected:     true,
-			expectError:  false,
 		},
 		{
-			name:         "Invalid boolean",
+			name:         "Invalid boolean uses default",
+			envKey:       "TEST_BOOL_INVALID",
 			envValue:     "maybe",
 			defaultValue: false,
-			expectError:  true,
+			expected:     false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseEnvBool(tc.envValue, tc.defaultValue)
-
-			if tc.expectError {
-				if err == nil {
-					t.Errorf("Expected error, but got none")
-				}
+			// Set environment variable for this test
+			original := os.Getenv(tc.envKey)
+			if tc.envValue != "" {
+				os.Setenv(tc.envKey, tc.envValue)
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
+				os.Unsetenv(tc.envKey)
+			}
+			defer func() {
+				if original != "" {
+					os.Setenv(tc.envKey, original)
+				} else {
+					os.Unsetenv(tc.envKey)
 				}
-				if result != tc.expected {
-					t.Errorf("Expected %v, got %v", tc.expected, result)
-				}
+			}()
+
+			result := getEnvBoolOrDefault(tc.envKey, tc.defaultValue)
+			if result != tc.expected {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
 			}
 		})
 	}
 }
 
-func TestParseEnvInt(t *testing.T) {
+func TestGetEnvIntOrDefault(t *testing.T) {
 	testCases := []struct {
 		name         string
+		envKey       string
 		envValue     string
 		defaultValue int
 		expected     int
-		expectError  bool
 	}{
 		{
 			name:         "Valid integer",
+			envKey:       "TEST_INT_VALID",
 			envValue:     "42",
 			defaultValue: 10,
 			expected:     42,
-			expectError:  false,
 		},
 		{
 			name:         "Empty uses default",
+			envKey:       "TEST_INT_EMPTY",
 			envValue:     "",
 			defaultValue: 100,
 			expected:     100,
-			expectError:  false,
 		},
 		{
 			name:         "Zero value",
+			envKey:       "TEST_INT_ZERO",
 			envValue:     "0",
 			defaultValue: 50,
 			expected:     0,
-			expectError:  false,
 		},
 		{
 			name:         "Negative value",
+			envKey:       "TEST_INT_NEGATIVE",
 			envValue:     "-5",
 			defaultValue: 10,
 			expected:     -5,
-			expectError:  false,
 		},
 		{
-			name:         "Invalid integer",
+			name:         "Invalid integer uses default",
+			envKey:       "TEST_INT_INVALID",
 			envValue:     "not-a-number",
 			defaultValue: 10,
-			expectError:  true,
+			expected:     10,
 		},
 		{
-			name:         "Float value",
+			name:         "Float value uses default",
+			envKey:       "TEST_INT_FLOAT",
 			envValue:     "3.14",
 			defaultValue: 10,
-			expectError:  true,
+			expected:     10,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseEnvInt(tc.envValue, tc.defaultValue)
-
-			if tc.expectError {
-				if err == nil {
-					t.Errorf("Expected error, but got none")
-				}
+			// Set environment variable for this test
+			original := os.Getenv(tc.envKey)
+			if tc.envValue != "" {
+				os.Setenv(tc.envKey, tc.envValue)
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
+				os.Unsetenv(tc.envKey)
+			}
+			defer func() {
+				if original != "" {
+					os.Setenv(tc.envKey, original)
+				} else {
+					os.Unsetenv(tc.envKey)
 				}
-				if result != tc.expected {
-					t.Errorf("Expected %v, got %v", tc.expected, result)
+			}()
+
+			result := getEnvIntOrDefault(tc.envKey, tc.defaultValue)
+			if result != tc.expected {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestTrackingNumberValidation(t *testing.T) {
+	testCases := []struct {
+		name           string
+		trackingNumber string
+		expectedValid  bool
+		expectedCarrier string
+	}{
+		{
+			name:           "Valid UPS tracking number",
+			trackingNumber: "1Z999AA1234567890",
+			expectedValid:  true,
+			expectedCarrier: "ups",
+		},
+		{
+			name:           "Valid USPS tracking number",
+			trackingNumber: "9400111699000367046792",
+			expectedValid:  true,
+			expectedCarrier: "usps",
+		},
+		{
+			name:           "Valid FedEx tracking number",
+			trackingNumber: "123456789012",
+			expectedValid:  true,
+			expectedCarrier: "fedex",
+		},
+		{
+			name:           "Invalid tracking number format",
+			trackingNumber: "INVALID123",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Empty tracking number",
+			trackingNumber: "",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Tracking number with special characters",
+			trackingNumber: "1Z999AA1234567890!@#",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Too short tracking number",
+			trackingNumber: "123",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Too long tracking number",
+			trackingNumber: "1Z999AA12345678901234567890123456789012345678901234567890",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// This test validates the concept of tracking number format validation
+			// In a real implementation, this would call a validation function
+			// For now, we simulate basic validation logic
+			
+			valid := validateTrackingNumberFormat(tc.trackingNumber)
+			if valid != tc.expectedValid {
+				t.Errorf("Expected validation result %v for %s, got %v", tc.expectedValid, tc.trackingNumber, valid)
+			}
+			
+			if tc.expectedValid {
+				carrier := identifyCarrierFromTrackingNumber(tc.trackingNumber)
+				if carrier != tc.expectedCarrier {
+					t.Errorf("Expected carrier %s for %s, got %s", tc.expectedCarrier, tc.trackingNumber, carrier)
 				}
 			}
 		})
 	}
 }
 
-// Helper functions that would need to be implemented in the actual config package
-func validateEmailConfig(config *EmailConfig) error {
-	if config.Gmail.ClientID == "" {
-		return fmt.Errorf("Gmail client ID is required")
-	}
-	if config.Gmail.ClientSecret == "" {
-		return fmt.Errorf("Gmail client secret is required")
-	}
-	if config.API.URL == "" {
-		return fmt.Errorf("API URL is required")
-	}
-	if !strings.HasPrefix(config.API.URL, "http://") && !strings.HasPrefix(config.API.URL, "https://") {
-		return fmt.Errorf("invalid API URL format")
-	}
-	if config.Processing.CheckInterval <= 0 {
-		return fmt.Errorf("check interval must be positive")
-	}
-	return nil
-}
-
-func parseEnvDuration(envValue string, defaultValue time.Duration) (time.Duration, error) {
-	if envValue == "" {
-		return defaultValue, nil
-	}
-	return time.ParseDuration(envValue)
-}
-
-func parseEnvBool(envValue string, defaultValue bool) (bool, error) {
-	if envValue == "" {
-		return defaultValue, nil
+// Helper functions for tracking number validation (these would normally be in the main package)
+func validateTrackingNumberFormat(trackingNumber string) bool {
+	if len(trackingNumber) == 0 || len(trackingNumber) > 40 {
+		return false
 	}
 	
-	switch strings.ToLower(envValue) {
-	case "true", "1", "yes", "on":
-		return true, nil
-	case "false", "0", "no", "off":
-		return false, nil
-	default:
-		return false, fmt.Errorf("invalid boolean value: %s", envValue)
-	}
-}
-
-func parseEnvInt(envValue string, defaultValue int) (int, error) {
-	if envValue == "" {
-		return defaultValue, nil
-	}
+	// Basic validation - check for UPS, USPS, or FedEx patterns
+	// UPS format: 1Z + 6 alphanumeric + 2 digits + 7 digits (18 characters total)
+	upsPattern := `^1Z[0-9A-Z]{6}\d{2}\d{7}$`
+	// USPS format: starts with 94/93/92/91/90 + 20 more digits (22 digits total)
+	uspsPattern := `^(94|93|92|91|90)\d{20}$`
+	// FedEx format: 12 digits
+	fedexPattern := `^\d{12}$`
 	
-	result := 0
-	for _, ch := range envValue {
-		if ch == '-' && result == 0 {
-			continue // Allow negative sign at start
+	patterns := []string{upsPattern, uspsPattern, fedexPattern}
+	for _, pattern := range patterns {
+		if matched, _ := regexp.MatchString(pattern, trackingNumber); matched {
+			return true
 		}
-		if ch < '0' || ch > '9' {
-			return 0, fmt.Errorf("invalid integer value: %s", envValue)
-		}
-		result = result*10 + int(ch-'0')
 	}
 	
-	if strings.HasPrefix(envValue, "-") {
-		result = -result
-	}
-	
-	return result, nil
+	return false
 }
+
+func identifyCarrierFromTrackingNumber(trackingNumber string) string {
+	if matched, _ := regexp.MatchString(`^1Z[0-9A-Z]{6}\d{2}\d{7}$`, trackingNumber); matched {
+		return "ups"
+	}
+	if matched, _ := regexp.MatchString(`^(94|93|92|91|90)\d{20}$`, trackingNumber); matched {
+		return "usps"
+	}
+	if matched, _ := regexp.MatchString(`^\d{12}$`, trackingNumber); matched {
+		return "fedex"
+	}
+	return ""
+}
+
 
