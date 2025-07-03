@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,44 @@ func TestLoadEmailConfig(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "invalid EMAIL_DRY_RUN",
+		},
+		{
+			name: "Invalid OAuth2 client ID format",
+			envVars: map[string]string{
+				"GMAIL_CLIENT_ID":     "", // Empty client ID
+				"GMAIL_CLIENT_SECRET": "test-secret",
+				"GMAIL_REFRESH_TOKEN": "test-refresh-token",
+				"EMAIL_API_URL":       "http://localhost:8080",
+			},
+			expectError: true,
+			errorMsg:    "either Gmail OAuth2 (client_id) or IMAP (username) credentials must be provided",
+		},
+		{
+			name: "Invalid OAuth2 client secret format",
+			envVars: map[string]string{
+				"GMAIL_CLIENT_ID":     "test-client-id",
+				"GMAIL_CLIENT_SECRET": "", // Empty client secret
+				"GMAIL_REFRESH_TOKEN": "test-refresh-token",
+				"EMAIL_API_URL":       "http://localhost:8080",
+			},
+			expectError: true,
+			errorMsg:    "gmail_client_secret is required when using OAuth2",
+		},
+		{
+			name: "Invalid OAuth2 refresh token format",
+			envVars: map[string]string{
+				"GMAIL_CLIENT_ID":     "test-client-id",
+				"GMAIL_CLIENT_SECRET": "test-secret",
+				"GMAIL_REFRESH_TOKEN": "invalid-token-format",
+				"EMAIL_API_URL":       "http://localhost:8080",
+			},
+			expectError: false, // Refresh token format validation happens at runtime
+			validate: func(config *EmailConfig) error {
+				if config.Gmail.RefreshToken != "invalid-token-format" {
+					return fmt.Errorf("expected refresh token to be preserved, got %s", config.Gmail.RefreshToken)
+				}
+				return nil
+			},
 		},
 	}
 
@@ -673,6 +712,121 @@ func TestGetEnvIntOrDefault(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTrackingNumberValidation(t *testing.T) {
+	testCases := []struct {
+		name           string
+		trackingNumber string
+		expectedValid  bool
+		expectedCarrier string
+	}{
+		{
+			name:           "Valid UPS tracking number",
+			trackingNumber: "1Z999AA1234567890",
+			expectedValid:  true,
+			expectedCarrier: "ups",
+		},
+		{
+			name:           "Valid USPS tracking number",
+			trackingNumber: "9400111699000367046792",
+			expectedValid:  true,
+			expectedCarrier: "usps",
+		},
+		{
+			name:           "Valid FedEx tracking number",
+			trackingNumber: "123456789012",
+			expectedValid:  true,
+			expectedCarrier: "fedex",
+		},
+		{
+			name:           "Invalid tracking number format",
+			trackingNumber: "INVALID123",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Empty tracking number",
+			trackingNumber: "",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Tracking number with special characters",
+			trackingNumber: "1Z999AA1234567890!@#",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Too short tracking number",
+			trackingNumber: "123",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+		{
+			name:           "Too long tracking number",
+			trackingNumber: "1Z999AA12345678901234567890123456789012345678901234567890",
+			expectedValid:  false,
+			expectedCarrier: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// This test validates the concept of tracking number format validation
+			// In a real implementation, this would call a validation function
+			// For now, we simulate basic validation logic
+			
+			valid := validateTrackingNumberFormat(tc.trackingNumber)
+			if valid != tc.expectedValid {
+				t.Errorf("Expected validation result %v for %s, got %v", tc.expectedValid, tc.trackingNumber, valid)
+			}
+			
+			if tc.expectedValid {
+				carrier := identifyCarrierFromTrackingNumber(tc.trackingNumber)
+				if carrier != tc.expectedCarrier {
+					t.Errorf("Expected carrier %s for %s, got %s", tc.expectedCarrier, tc.trackingNumber, carrier)
+				}
+			}
+		})
+	}
+}
+
+// Helper functions for tracking number validation (these would normally be in the main package)
+func validateTrackingNumberFormat(trackingNumber string) bool {
+	if len(trackingNumber) == 0 || len(trackingNumber) > 40 {
+		return false
+	}
+	
+	// Basic validation - check for UPS, USPS, or FedEx patterns
+	// UPS format: 1Z + 6 alphanumeric + 2 digits + 7 digits (18 characters total)
+	upsPattern := `^1Z[0-9A-Z]{6}\d{2}\d{7}$`
+	// USPS format: starts with 94/93/92/91/90 + 20 more digits (22 digits total)
+	uspsPattern := `^(94|93|92|91|90)\d{20}$`
+	// FedEx format: 12 digits
+	fedexPattern := `^\d{12}$`
+	
+	patterns := []string{upsPattern, uspsPattern, fedexPattern}
+	for _, pattern := range patterns {
+		if matched, _ := regexp.MatchString(pattern, trackingNumber); matched {
+			return true
+		}
+	}
+	
+	return false
+}
+
+func identifyCarrierFromTrackingNumber(trackingNumber string) string {
+	if matched, _ := regexp.MatchString(`^1Z[0-9A-Z]{6}\d{2}\d{7}$`, trackingNumber); matched {
+		return "ups"
+	}
+	if matched, _ := regexp.MatchString(`^(94|93|92|91|90)\d{20}$`, trackingNumber); matched {
+		return "usps"
+	}
+	if matched, _ := regexp.MatchString(`^\d{12}$`, trackingNumber); matched {
+		return "fedex"
+	}
+	return ""
 }
 
 
