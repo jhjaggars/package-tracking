@@ -451,206 +451,225 @@ func TestEmailConfigValidation(t *testing.T) {
 	}
 }
 
-func TestParseEnvDuration(t *testing.T) {
+func TestGetEnvDurationOrDefault(t *testing.T) {
 	testCases := []struct {
 		name         string
+		envKey       string
 		envValue     string
-		defaultValue time.Duration
+		defaultValue string
 		expected     time.Duration
-		expectError  bool
 	}{
 		{
 			name:         "Valid duration",
+			envKey:       "TEST_DURATION",
 			envValue:     "5m",
-			defaultValue: 1 * time.Minute,
+			defaultValue: "1m",
 			expected:     5 * time.Minute,
-			expectError:  false,
 		},
 		{
 			name:         "Empty value uses default",
+			envKey:       "TEST_DURATION_EMPTY",
 			envValue:     "",
-			defaultValue: 10 * time.Second,
+			defaultValue: "10s",
 			expected:     10 * time.Second,
-			expectError:  false,
 		},
 		{
-			name:         "Invalid duration",
+			name:         "Invalid duration uses default",
+			envKey:       "TEST_DURATION_INVALID",
 			envValue:     "not-a-duration",
-			defaultValue: 1 * time.Minute,
-			expectError:  true,
+			defaultValue: "1m",
+			expected:     1 * time.Minute,
 		},
 		{
 			name:         "Complex duration",
+			envKey:       "TEST_DURATION_COMPLEX",
 			envValue:     "1h30m45s",
-			defaultValue: 1 * time.Minute,
+			defaultValue: "1m",
 			expected:     1*time.Hour + 30*time.Minute + 45*time.Second,
-			expectError:  false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseEnvDuration(tc.envValue, tc.defaultValue)
-
-			if tc.expectError {
-				if err == nil {
-					t.Errorf("Expected error, but got none")
-				}
+			// Set environment variable for this test
+			original := os.Getenv(tc.envKey)
+			if tc.envValue != "" {
+				os.Setenv(tc.envKey, tc.envValue)
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
+				os.Unsetenv(tc.envKey)
+			}
+			defer func() {
+				if original != "" {
+					os.Setenv(tc.envKey, original)
+				} else {
+					os.Unsetenv(tc.envKey)
 				}
-				if result != tc.expected {
-					t.Errorf("Expected %v, got %v", tc.expected, result)
-				}
+			}()
+
+			result := getEnvDurationOrDefault(tc.envKey, tc.defaultValue)
+			if result != tc.expected {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
 			}
 		})
 	}
 }
 
-func TestParseEnvBool(t *testing.T) {
+func TestGetEnvBoolOrDefault(t *testing.T) {
 	testCases := []struct {
 		name         string
+		envKey       string
 		envValue     string
 		defaultValue bool
 		expected     bool
-		expectError  bool
 	}{
 		{
 			name:         "True values",
+			envKey:       "TEST_BOOL_TRUE",
 			envValue:     "true",
 			defaultValue: false,
 			expected:     true,
-			expectError:  false,
 		},
 		{
 			name:         "False values",
+			envKey:       "TEST_BOOL_FALSE",
 			envValue:     "false",
 			defaultValue: true,
 			expected:     false,
-			expectError:  false,
 		},
 		{
 			name:         "Case insensitive true",
+			envKey:       "TEST_BOOL_TRUE_CASE",
 			envValue:     "TRUE",
 			defaultValue: false,
 			expected:     true,
-			expectError:  false,
 		},
 		{
 			name:         "Numeric true",
+			envKey:       "TEST_BOOL_NUMERIC_TRUE",
 			envValue:     "1",
 			defaultValue: false,
 			expected:     true,
-			expectError:  false,
 		},
 		{
 			name:         "Numeric false",
+			envKey:       "TEST_BOOL_NUMERIC_FALSE",
 			envValue:     "0",
 			defaultValue: true,
 			expected:     false,
-			expectError:  false,
 		},
 		{
 			name:         "Empty uses default",
+			envKey:       "TEST_BOOL_EMPTY",
 			envValue:     "",
 			defaultValue: true,
 			expected:     true,
-			expectError:  false,
 		},
 		{
-			name:         "Invalid boolean",
+			name:         "Invalid boolean uses default",
+			envKey:       "TEST_BOOL_INVALID",
 			envValue:     "maybe",
 			defaultValue: false,
-			expectError:  true,
+			expected:     false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseEnvBool(tc.envValue, tc.defaultValue)
-
-			if tc.expectError {
-				if err == nil {
-					t.Errorf("Expected error, but got none")
-				}
+			// Set environment variable for this test
+			original := os.Getenv(tc.envKey)
+			if tc.envValue != "" {
+				os.Setenv(tc.envKey, tc.envValue)
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
+				os.Unsetenv(tc.envKey)
+			}
+			defer func() {
+				if original != "" {
+					os.Setenv(tc.envKey, original)
+				} else {
+					os.Unsetenv(tc.envKey)
 				}
-				if result != tc.expected {
-					t.Errorf("Expected %v, got %v", tc.expected, result)
-				}
+			}()
+
+			result := getEnvBoolOrDefault(tc.envKey, tc.defaultValue)
+			if result != tc.expected {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
 			}
 		})
 	}
 }
 
-func TestParseEnvInt(t *testing.T) {
+func TestGetEnvIntOrDefault(t *testing.T) {
 	testCases := []struct {
 		name         string
+		envKey       string
 		envValue     string
 		defaultValue int
 		expected     int
-		expectError  bool
 	}{
 		{
 			name:         "Valid integer",
+			envKey:       "TEST_INT_VALID",
 			envValue:     "42",
 			defaultValue: 10,
 			expected:     42,
-			expectError:  false,
 		},
 		{
 			name:         "Empty uses default",
+			envKey:       "TEST_INT_EMPTY",
 			envValue:     "",
 			defaultValue: 100,
 			expected:     100,
-			expectError:  false,
 		},
 		{
 			name:         "Zero value",
+			envKey:       "TEST_INT_ZERO",
 			envValue:     "0",
 			defaultValue: 50,
 			expected:     0,
-			expectError:  false,
 		},
 		{
 			name:         "Negative value",
+			envKey:       "TEST_INT_NEGATIVE",
 			envValue:     "-5",
 			defaultValue: 10,
 			expected:     -5,
-			expectError:  false,
 		},
 		{
-			name:         "Invalid integer",
+			name:         "Invalid integer uses default",
+			envKey:       "TEST_INT_INVALID",
 			envValue:     "not-a-number",
 			defaultValue: 10,
-			expectError:  true,
+			expected:     10,
 		},
 		{
-			name:         "Float value",
+			name:         "Float value uses default",
+			envKey:       "TEST_INT_FLOAT",
 			envValue:     "3.14",
 			defaultValue: 10,
-			expectError:  true,
+			expected:     10,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseEnvInt(tc.envValue, tc.defaultValue)
-
-			if tc.expectError {
-				if err == nil {
-					t.Errorf("Expected error, but got none")
-				}
+			// Set environment variable for this test
+			original := os.Getenv(tc.envKey)
+			if tc.envValue != "" {
+				os.Setenv(tc.envKey, tc.envValue)
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
+				os.Unsetenv(tc.envKey)
+			}
+			defer func() {
+				if original != "" {
+					os.Setenv(tc.envKey, original)
+				} else {
+					os.Unsetenv(tc.envKey)
 				}
-				if result != tc.expected {
-					t.Errorf("Expected %v, got %v", tc.expected, result)
-				}
+			}()
+
+			result := getEnvIntOrDefault(tc.envKey, tc.defaultValue)
+			if result != tc.expected {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
 			}
 		})
 	}
@@ -674,50 +693,5 @@ func validateEmailConfig(config *EmailConfig) error {
 		return fmt.Errorf("check interval must be positive")
 	}
 	return nil
-}
-
-func parseEnvDuration(envValue string, defaultValue time.Duration) (time.Duration, error) {
-	if envValue == "" {
-		return defaultValue, nil
-	}
-	return time.ParseDuration(envValue)
-}
-
-func parseEnvBool(envValue string, defaultValue bool) (bool, error) {
-	if envValue == "" {
-		return defaultValue, nil
-	}
-	
-	switch strings.ToLower(envValue) {
-	case "true", "1", "yes", "on":
-		return true, nil
-	case "false", "0", "no", "off":
-		return false, nil
-	default:
-		return false, fmt.Errorf("invalid boolean value: %s", envValue)
-	}
-}
-
-func parseEnvInt(envValue string, defaultValue int) (int, error) {
-	if envValue == "" {
-		return defaultValue, nil
-	}
-	
-	result := 0
-	for _, ch := range envValue {
-		if ch == '-' && result == 0 {
-			continue // Allow negative sign at start
-		}
-		if ch < '0' || ch > '9' {
-			return 0, fmt.Errorf("invalid integer value: %s", envValue)
-		}
-		result = result*10 + int(ch-'0')
-	}
-	
-	if strings.HasPrefix(envValue, "-") {
-		result = -result
-	}
-	
-	return result, nil
 }
 

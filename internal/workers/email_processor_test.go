@@ -402,17 +402,17 @@ func TestEmailProcessor_DryRunMode(t *testing.T) {
 	extractor := &mockExtractor{trackingNumbers: trackingNumbers}
 	apiClient := &mockAPIClient{}
 
-	config := &ProcessorConfig{
-		CheckInterval: 5 * time.Minute,
-		MaxPerRun:     50,
-		DryRun:        true, // Enable dry run mode
-		SearchQuery:   "test query",
+	config := &EmailProcessorConfig{
+		CheckInterval:     5 * time.Minute,
+		MaxEmailsPerRun:   50,
+		DryRun:            true, // Enable dry run mode
+		SearchQuery:       "test query",
+		ProcessingTimeout: 30 * time.Second,
+		RetryCount:        3,
+		RetryDelay:        1 * time.Second,
 	}
 
-	processor, err := NewEmailProcessor(emailClient, stateManager, extractor, apiClient, config, logger)
-	if err != nil {
-		t.Fatalf("Failed to create processor: %v", err)
-	}
+	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
 	err = processor.processEmails()
 	if err != nil {
@@ -450,17 +450,17 @@ func TestEmailProcessor_MaxPerRunLimit(t *testing.T) {
 	extractor := &mockExtractor{trackingNumbers: []email.TrackingInfo{}}
 	apiClient := &mockAPIClient{}
 
-	config := &ProcessorConfig{
-		CheckInterval: 5 * time.Minute,
-		MaxPerRun:     5, // Limit to 5 emails per run
-		DryRun:        false,
-		SearchQuery:   "test query",
+	config := &EmailProcessorConfig{
+		CheckInterval:     5 * time.Minute,
+		MaxEmailsPerRun:   5, // Limit to 5 emails per run
+		DryRun:            false,
+		SearchQuery:       "test query",
+		ProcessingTimeout: 30 * time.Second,
+		RetryCount:        3,
+		RetryDelay:        1 * time.Second,
 	}
 
-	processor, err := NewEmailProcessor(emailClient, stateManager, extractor, apiClient, config, logger)
-	if err != nil {
-		t.Fatalf("Failed to create processor: %v", err)
-	}
+	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
 	err = processor.processEmails()
 	if err != nil {
@@ -501,9 +501,9 @@ func TestEmailProcessor_HealthCheck(t *testing.T) {
 			extractor := &mockExtractor{}
 			apiClient := &mockAPIClient{}
 
-			config := &ProcessorConfig{
+			config := &EmailProcessorConfig{
 				CheckInterval: 5 * time.Minute,
-				MaxPerRun:     50,
+				MaxEmailsPerRun:     50,
 				SearchQuery:   "test query",
 			}
 
@@ -535,9 +535,9 @@ func TestEmailProcessor_StartStop(t *testing.T) {
 	extractor := &mockExtractor{}
 	apiClient := &mockAPIClient{}
 
-	config := &ProcessorConfig{
+	config := &EmailProcessorConfig{
 		CheckInterval: 100 * time.Millisecond, // Fast interval for testing
-		MaxPerRun:     50,
+		MaxEmailsPerRun:     50,
 		SearchQuery:   "test query",
 	}
 
@@ -585,9 +585,9 @@ func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
 	extractor := &mockExtractor{}
 	apiClient := &mockAPIClient{}
 
-	config := &ProcessorConfig{
+	config := &EmailProcessorConfig{
 		CheckInterval: 50 * time.Millisecond,
-		MaxPerRun:     1,
+		MaxEmailsPerRun:     1,
 		SearchQuery:   "test query",
 	}
 
@@ -649,9 +649,9 @@ func TestEmailProcessor_ErrorRecovery(t *testing.T) {
 		errorOnCreate: true, // Simulate API errors
 	}
 
-	config := &ProcessorConfig{
+	config := &EmailProcessorConfig{
 		CheckInterval: 100 * time.Millisecond,
-		MaxPerRun:     50,
+		MaxEmailsPerRun:     50,
 		SearchQuery:   "test query",
 	}
 
@@ -714,9 +714,9 @@ func BenchmarkEmailProcessor_ProcessEmails(b *testing.B) {
 	}
 	apiClient := &mockAPIClient{}
 
-	config := &ProcessorConfig{
+	config := &EmailProcessorConfig{
 		CheckInterval: 5 * time.Minute,
-		MaxPerRun:     50,
+		MaxEmailsPerRun:     50,
 		DryRun:        true, // Use dry run to avoid side effects
 		SearchQuery:   "test query",
 	}
