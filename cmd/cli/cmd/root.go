@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	serverURL string
-	format    string
-	quiet     bool
-	noColor   bool
+	serverURL       string
+	format          string
+	quiet           bool
+	noColor         bool
+	skipHealthCheck bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -42,6 +43,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "", "Output format (table, json)")
 	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode (minimal output)")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable color output")
+	rootCmd.PersistentFlags().BoolVar(&skipHealthCheck, "skip-health-check", false, "Skip API health check for faster execution")
 }
 
 // initConfig initializes configuration and environment variable binding
@@ -60,6 +62,9 @@ func initConfig() {
 	}
 	if (os.Getenv("NO_COLOR") != "" || os.Getenv("PACKAGE_TRACKER_NO_COLOR") == "true") && !rootCmd.PersistentFlags().Changed("no-color") {
 		noColor = true
+	}
+	if os.Getenv("PACKAGE_TRACKER_SKIP_HEALTH_CHECK") == "true" && !rootCmd.PersistentFlags().Changed("skip-health-check") {
+		skipHealthCheck = true
 	}
 }
 
@@ -81,10 +86,12 @@ func initializeClient() (*cliapi.Config, *cliapi.OutputFormatter, *cliapi.Client
 	formatter := cliapi.NewOutputFormatterWithColor(config.Format, config.Quiet, noColor)
 	client := cliapi.NewClientWithTimeout(config.ServerURL, config.RequestTimeout)
 
-	// Test connectivity
-	if err := client.HealthCheck(); err != nil {
-		formatter.PrintError(err)
-		return nil, nil, nil, err
+	// Test connectivity (unless skipped for performance)
+	if !skipHealthCheck {
+		if err := client.HealthCheck(); err != nil {
+			formatter.PrintError(err)
+			return nil, nil, nil, err
+		}
 	}
 
 	return config, formatter, client, nil
