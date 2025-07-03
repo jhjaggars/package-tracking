@@ -22,8 +22,9 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	id, err := validateAndParseID(args[0], formatter)
+	id, err := validateAndParseID(args[0])
 	if err != nil {
+		formatter.PrintError(err)
 		return err
 	}
 

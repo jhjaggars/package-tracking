@@ -24,7 +24,8 @@ var rootCmd = &cobra.Command{
 	Long: `Package Tracker CLI allows you to manage and track shipments through 
 a REST API. You can add new shipments, list existing ones, update descriptions,
 and view tracking events.`,
-	Version: "1.0.0",
+	Version:                "1.0.0",
+	SuggestionsMinimumDistance: 2,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -34,17 +35,32 @@ func Execute() {
 }
 
 func init() {
+	cobra.OnInitialize(initConfig)
+
 	// Global flags
-	rootCmd.PersistentFlags().StringVarP(&serverURL, "server", "s", "http://localhost:8080", "API server address")
-	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "table", "Output format (table, json)")
+	rootCmd.PersistentFlags().StringVarP(&serverURL, "server", "s", "", "API server address")
+	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "", "Output format (table, json)")
 	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode (minimal output)")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable color output")
+}
 
-	// Bind environment variables
-	rootCmd.PersistentFlags().Lookup("server").DefValue = getEnvOrDefault("PACKAGE_TRACKER_SERVER", "http://localhost:8080")
-	rootCmd.PersistentFlags().Lookup("format").DefValue = getEnvOrDefault("PACKAGE_TRACKER_FORMAT", "table")
-	rootCmd.PersistentFlags().Lookup("quiet").DefValue = getEnvOrDefault("PACKAGE_TRACKER_QUIET", "false")
-	rootCmd.PersistentFlags().Lookup("no-color").DefValue = getEnvOrDefault("NO_COLOR", "false")
+// initConfig initializes configuration and environment variable binding
+func initConfig() {
+	// Set defaults and bind environment variables
+	if serverURL == "" {
+		serverURL = getEnvOrDefault("PACKAGE_TRACKER_SERVER", "http://localhost:8080")
+	}
+	if format == "" {
+		format = getEnvOrDefault("PACKAGE_TRACKER_FORMAT", "table")
+	}
+	
+	// Handle boolean environment variables
+	if os.Getenv("PACKAGE_TRACKER_QUIET") == "true" && !rootCmd.PersistentFlags().Changed("quiet") {
+		quiet = true
+	}
+	if (os.Getenv("NO_COLOR") != "" || os.Getenv("PACKAGE_TRACKER_NO_COLOR") == "true") && !rootCmd.PersistentFlags().Changed("no-color") {
+		noColor = true
+	}
 }
 
 // getEnvOrDefault returns environment variable value or default

@@ -7,11 +7,12 @@ import (
 )
 
 var updateCmd = &cobra.Command{
-	Use:   "update <shipment-id>",
-	Short: "Update shipment description",
-	Long:  `Update the description of an existing shipment.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runUpdate,
+	Use:     "update <shipment-id>",
+	Aliases: []string{"edit", "modify"},
+	Short:   "Update shipment description",
+	Long:    `Update the description of an existing shipment.`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runUpdate,
 }
 
 var updateDescription string
@@ -29,8 +30,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	id, err := validateAndParseID(args[0], formatter)
+	id, err := validateAndParseID(args[0])
 	if err != nil {
+		formatter.PrintError(err)
 		return err
 	}
 

@@ -8,7 +8,7 @@ import (
 
 var addCmd = &cobra.Command{
 	Use:     "add",
-	Aliases: []string{"a"},
+	Aliases: []string{"a", "create"},
 	Short:   "Add a new shipment",
 	Long:    `Add a new shipment to track with the specified tracking number and carrier.`,
 	RunE:    runAdd,
