@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -88,8 +87,8 @@ func TestLoadEmailConfig(t *testing.T) {
 			},
 			expectError: false,
 			validate: func(cfg *EmailConfig) error {
-				if cfg.Gmail.SearchConfig.AfterDays != 14 {
-					return fmt.Errorf("expected after days 14, got %d", cfg.Gmail.SearchConfig.AfterDays)
+				if cfg.Search.AfterDays != 14 {
+					return fmt.Errorf("expected after days 14, got %d", cfg.Search.AfterDays)
 				}
 				if cfg.Processing.CheckInterval != 10*time.Minute {
 					return fmt.Errorf("expected check interval 10m, got %v", cfg.Processing.CheckInterval)
@@ -350,25 +349,11 @@ func TestEmailConfigDefaults(t *testing.T) {
 		t.Fatalf("Failed to load config with defaults: %v", err)
 	}
 
-	// Verify default values
-	expected := map[string]interface{}{
-		"Gmail.SearchConfig.AfterDays":      30,
-		"Gmail.SearchConfig.UnreadOnly":     false,
-		"Gmail.SearchConfig.MaxResults":     100,
-		"Processing.CheckInterval":          5 * time.Minute,
-		"Processing.MaxPerRun":              50,
-		"Processing.DryRun":                 false,
-		"Processing.MinConfidence":          0.5,
-		"Processing.DebugMode":              false,
-		"Processing.StateDBPath":            "./email-state.db",
-		"API.Timeout":                       30 * time.Second,
-		"API.RetryCount":                    3,
-		"API.RetryDelay":                    1 * time.Second,
-	}
+	// Verify default values - removing unused map
 
 	// Check defaults using reflection would be complex, so check key values manually
-	if config.Gmail.SearchConfig.AfterDays != 30 {
-		t.Errorf("Expected default AfterDays 30, got %d", config.Gmail.SearchConfig.AfterDays)
+	if config.Search.AfterDays != 30 {
+		t.Errorf("Expected default AfterDays 30, got %d", config.Search.AfterDays)
 	}
 	if config.Processing.CheckInterval != 5*time.Minute {
 		t.Errorf("Expected default CheckInterval 5m, got %v", config.Processing.CheckInterval)
@@ -391,16 +376,16 @@ func TestEmailConfigValidation(t *testing.T) {
 					ClientID:     "valid-id",
 					ClientSecret: "valid-secret",
 					RefreshToken: "valid-token",
-					SearchConfig: SearchConfig{
-						AfterDays:   30,
-						MaxResults:  100,
-					},
+				},
+				Search: SearchConfig{
+					AfterDays:   30,
+					MaxResults:  100,
 				},
 				Processing: ProcessingConfig{
-					CheckInterval:  5 * time.Minute,
-					MaxPerRun:      50,
-					MinConfidence:  0.5,
-					StateDBPath:    "./state.db",
+					CheckInterval:     5 * time.Minute,
+					MaxEmailsPerRun:   50,
+					MinConfidence:     0.5,
+					StateDBPath:       "./state.db",
 				},
 				API: APIConfig{
 					URL:         "http://localhost:8080",
