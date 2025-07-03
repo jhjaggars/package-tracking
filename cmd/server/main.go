@@ -55,14 +55,14 @@ func main() {
 
 	log.Printf("Database initialized at %s", cfg.DBPath)
 
-	// Initialize cache manager
-	cacheManager := cache.NewManager(db.RefreshCache, cfg.GetDisableCache(), 5*time.Minute)
+	// Initialize cache manager with configurable TTL
+	cacheManager := cache.NewManager(db.RefreshCache, cfg.GetDisableCache(), cfg.GetCacheTTL())
 	defer cacheManager.Close()
 
 	if cfg.GetDisableCache() {
 		log.Printf("Cache disabled via configuration")
 	} else {
-		log.Printf("Cache initialized with 5 minute TTL")
+		log.Printf("Cache initialized with %v TTL", cfg.GetCacheTTL())
 	}
 
 	// Initialize carrier factory
@@ -76,6 +76,25 @@ func main() {
 		}
 		carrierFactory.SetCarrierConfig("usps", uspsConfig)
 		log.Printf("USPS API credentials configured")
+	}
+
+	// Configure UPS with OAuth credentials (preferred) or legacy API key
+	if cfg.GetUPSClientID() != "" && cfg.GetUPSClientSecret() != "" {
+		upsConfig := &carriers.CarrierConfig{
+			ClientID:      cfg.GetUPSClientID(),
+			ClientSecret:  cfg.GetUPSClientSecret(),
+			PreferredType: carriers.ClientTypeAPI,
+		}
+		carrierFactory.SetCarrierConfig("ups", upsConfig)
+		log.Printf("UPS OAuth credentials configured")
+	} else if cfg.UPSAPIKey != "" {
+		log.Printf("WARNING: UPS_API_KEY is deprecated. Please use UPS_CLIENT_ID and UPS_CLIENT_SECRET instead.")
+		upsConfig := &carriers.CarrierConfig{
+			UserID:        cfg.UPSAPIKey,
+			PreferredType: carriers.ClientTypeAPI,
+		}
+		carrierFactory.SetCarrierConfig("ups", upsConfig)
+		log.Printf("UPS legacy API credentials configured")
 	}
 
 	if cfg.FedExAPIKey != "" && cfg.FedExSecretKey != "" {
@@ -104,6 +123,11 @@ func main() {
 	if cfg.AutoUpdateEnabled {
 		log.Printf("Automatic tracking updates enabled (interval: %v, cutoff: %d days)", 
 			cfg.UpdateInterval, cfg.AutoUpdateCutoffDays)
+		if cfg.UPSAutoUpdateEnabled {
+			log.Printf("UPS auto-updates enabled (cutoff: %d days)", cfg.UPSAutoUpdateCutoffDays)
+		} else {
+			log.Printf("UPS auto-updates disabled")
+		}
 	} else {
 		log.Printf("Automatic tracking updates disabled")
 	}

@@ -22,6 +22,10 @@ func getTestConfig() *config.Config {
 		AutoUpdateCutoffDays:        30,
 		AutoUpdateBatchSize:         3, // Small batch for testing
 		AutoUpdateMaxRetries:        5,
+		AutoUpdateFailureThreshold:  10,
+		UPSAutoUpdateEnabled:        true,
+		UPSAutoUpdateCutoffDays:     30,
+		CacheTTL:                    5 * time.Minute,
 		AutoUpdateBatchTimeout:      5 * time.Second,
 		AutoUpdateIndividualTimeout: 3 * time.Second,
 	}
@@ -263,4 +267,212 @@ func TestTrackingUpdater_ContextConfiguration(t *testing.T) {
 	if updater.ctx == nil {
 		t.Error("Expected context to be set")
 	}
+}
+
+// createTestUPSShipment creates a test UPS shipment in the database
+func createTestUPSShipment(t *testing.T, db *database.DB, trackingNumber string, lastManualRefresh *time.Time) *database.Shipment {
+	shipment := &database.Shipment{
+		TrackingNumber:       trackingNumber,
+		Carrier:              "ups",
+		Description:          "Test UPS Package",
+		Status:               "pending",
+		AutoRefreshEnabled:   true,
+		LastManualRefresh:    lastManualRefresh,
+		AutoRefreshFailCount: 0,
+	}
+
+	err := db.Shipments.Create(shipment)
+	if err != nil {
+		t.Fatalf("Failed to create test UPS shipment: %v", err)
+	}
+
+	// If lastManualRefresh is provided, update the shipment to set this field
+	if lastManualRefresh != nil {
+		shipment.LastManualRefresh = lastManualRefresh
+		err = db.Shipments.Update(shipment.ID, shipment)
+		if err != nil {
+			t.Fatalf("Failed to update test UPS shipment with manual refresh time: %v", err)
+		}
+	}
+
+	return shipment
+}
+
+func TestTrackingUpdater_UPSAutoUpdateConfig(t *testing.T) {
+	cfg := getTestConfig()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Test UPS-specific configuration
+	if !updater.config.UPSAutoUpdateEnabled {
+		t.Error("UPS auto-updates should be enabled in test config")
+	}
+	
+	if updater.config.UPSAutoUpdateCutoffDays != 30 {
+		t.Errorf("Expected UPS cutoff days 30, got %d", updater.config.UPSAutoUpdateCutoffDays)
+	}
+	
+	if updater.config.AutoUpdateFailureThreshold != 10 {
+		t.Errorf("Expected failure threshold 10, got %d", updater.config.AutoUpdateFailureThreshold)
+	}
+
+	if updater.config.CacheTTL != 5*time.Minute {
+		t.Errorf("Expected cache TTL 5m, got %v", updater.config.CacheTTL)
+	}
+}
+
+func TestTrackingUpdater_UPSAutoUpdateDisabled(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.UPSAutoUpdateEnabled = false
+	
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Create UPS shipments
+	createTestUPSShipment(t, db, "1Z999AA1234567890", nil)
+	createTestUPSShipment(t, db, "1Z999BB1234567890", nil)
+
+	// Verify UPS auto-updates are disabled in config
+	if updater.config.UPSAutoUpdateEnabled {
+		t.Error("UPS auto-updates should be disabled")
+	}
+
+	// Since we can't easily test the actual update behavior without mocking,
+	// we verify the configuration is properly set to disabled
+	t.Logf("UPS auto-updates properly disabled in configuration")
+}
+
+func TestTrackingUpdater_UPSCutoffDaysFallback(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.UPSAutoUpdateCutoffDays = 0 // Should fall back to global setting
+	cfg.AutoUpdateCutoffDays = 45   // Global setting
+	
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Test that the fallback logic works
+	// We can't easily test the runtime behavior without mocking,
+	// but we can verify the configuration setup
+	if updater.config.UPSAutoUpdateCutoffDays != 0 {
+		t.Errorf("Expected UPS cutoff days to be 0 (fallback), got %d", updater.config.UPSAutoUpdateCutoffDays)
+	}
+	
+	if updater.config.AutoUpdateCutoffDays != 45 {
+		t.Errorf("Expected global cutoff days 45, got %d", updater.config.AutoUpdateCutoffDays)
+	}
+
+	t.Logf("UPS cutoff days fallback configuration verified")
+}
+
+func TestTrackingUpdater_MultiCarrierSupport(t *testing.T) {
+	cfg := getTestConfig()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Create shipments for multiple carriers
+	uspsShipment := createTestShipment(t, db, "9999999999999999999999", nil)
+	upsShipment := createTestUPSShipment(t, db, "1Z999AA1234567890", nil)
+
+	// Verify shipments were created with correct carriers
+	if uspsShipment.Carrier != "usps" {
+		t.Errorf("Expected USPS carrier, got %s", uspsShipment.Carrier)
+	}
+	
+	if upsShipment.Carrier != "ups" {
+		t.Errorf("Expected UPS carrier, got %s", upsShipment.Carrier)
+	}
+
+	// Test database query for carrier-specific shipments
+	cutoffDate := time.Now().AddDate(0, 0, -30)
+	
+	uspsShipments, err := db.Shipments.GetActiveForAutoUpdate("usps", cutoffDate, 10)
+	if err != nil {
+		t.Fatalf("Failed to get USPS shipments: %v", err)
+	}
+	
+	upsShipments, err := db.Shipments.GetActiveForAutoUpdate("ups", cutoffDate, 10)
+	if err != nil {
+		t.Fatalf("Failed to get UPS shipments: %v", err)
+	}
+
+	// Verify carrier filtering works
+	if len(uspsShipments) != 1 {
+		t.Errorf("Expected 1 USPS shipment, got %d", len(uspsShipments))
+	}
+	
+	if len(upsShipments) != 1 {
+		t.Errorf("Expected 1 UPS shipment, got %d", len(upsShipments))
+	}
+
+	if len(uspsShipments) > 0 && uspsShipments[0].Carrier != "usps" {
+		t.Errorf("USPS query returned wrong carrier: %s", uspsShipments[0].Carrier)
+	}
+	
+	if len(upsShipments) > 0 && upsShipments[0].Carrier != "ups" {
+		t.Errorf("UPS query returned wrong carrier: %s", upsShipments[0].Carrier)
+	}
+
+	t.Logf("Multi-carrier support verified: USPS=%d, UPS=%d", len(uspsShipments), len(upsShipments))
+}
+
+func TestTrackingUpdater_FailureThresholdSupport(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.AutoUpdateFailureThreshold = 5 // Custom threshold
+	
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Create a shipment with high failure count (above threshold)
+	shipment := createTestUPSShipment(t, db, "1Z999AA1234567890", nil)
+	shipment.AutoRefreshFailCount = 6 // Above threshold of 5
+	err := db.Shipments.Update(shipment.ID, shipment)
+	if err != nil {
+		t.Fatalf("Failed to update shipment failure count: %v", err)
+	}
+
+	// Test that the shipment is excluded due to failure threshold
+	cutoffDate := time.Now().AddDate(0, 0, -30)
+	shipments, err := db.Shipments.GetActiveForAutoUpdate("ups", cutoffDate, cfg.AutoUpdateFailureThreshold)
+	if err != nil {
+		t.Fatalf("Failed to get shipments: %v", err)
+	}
+
+	// Should be empty because failure count (6) exceeds threshold (5)
+	if len(shipments) != 0 {
+		t.Errorf("Expected 0 shipments due to failure threshold, got %d", len(shipments))
+	}
+
+	// Test with lower failure count (below threshold)
+	shipment.AutoRefreshFailCount = 3 // Below threshold of 5
+	err = db.Shipments.Update(shipment.ID, shipment)
+	if err != nil {
+		t.Fatalf("Failed to update shipment failure count: %v", err)
+	}
+
+	shipments, err = db.Shipments.GetActiveForAutoUpdate("ups", cutoffDate, cfg.AutoUpdateFailureThreshold)
+	if err != nil {
+		t.Fatalf("Failed to get shipments: %v", err)
+	}
+
+	// Should include the shipment because failure count (3) is below threshold (5)
+	if len(shipments) != 1 {
+		t.Errorf("Expected 1 shipment below failure threshold, got %d", len(shipments))
+	}
+
+	t.Logf("Failure threshold support verified: threshold=%d", cfg.AutoUpdateFailureThreshold)
 }

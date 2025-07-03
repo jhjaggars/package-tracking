@@ -181,6 +181,8 @@ func TestValidate(t *testing.T) {
 			LogLevel:                    "info",
 			AutoUpdateBatchSize:         5, // Must be between 1 and 10
 			AutoUpdateMaxRetries:        3,
+			AutoUpdateFailureThreshold:  10,
+			CacheTTL:                    5 * time.Minute,
 			AutoUpdateBatchTimeout:      30 * time.Second,
 			AutoUpdateIndividualTimeout: 10 * time.Second,
 		}
