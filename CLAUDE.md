@@ -108,6 +108,7 @@ REST API following `/api/` prefix:
 - Refresh: POST `/api/shipments/{id}/refresh` - Refresh tracking data with caching
 - Carriers: GET `/api/carriers`
 - Health: GET `/api/health`
+- Admin: GET/POST `/api/admin/tracking-updater/*` - Admin endpoints (authentication required)
 
 ### Refresh Caching System
 The system implements intelligent caching for refresh requests to improve performance and reduce carrier API load:
@@ -129,6 +130,40 @@ The system implements intelligent caching for refresh requests to improve perfor
 - Cache entries automatically expire after configurable TTL (default: 5 minutes)
 - Background cleanup removes expired entries every minute
 - Cache invalidation on shipment updates ensures data consistency
+
+### Admin Authentication
+The system includes secure authentication for admin API endpoints to prevent unauthorized access to administrative functions:
+
+**Features:**
+- API key-based authentication using Bearer token format
+- Configurable authentication (can be disabled for development)
+- Secure constant-time API key comparison to prevent timing attacks
+- Failed authentication attempts are logged with client IP details
+- API key redaction in logs for security
+
+**Usage:**
+```bash
+# Enable authentication (default behavior)
+ADMIN_API_KEY="your-secret-key-here" go run cmd/server/main.go
+
+# Disable authentication for development
+DISABLE_ADMIN_AUTH=true go run cmd/server/main.go
+
+# Access admin endpoints with authentication
+curl -H "Authorization: Bearer your-secret-key-here" \
+     http://localhost:8080/api/admin/tracking-updater/status
+```
+
+**Configuration:**
+- Set `ADMIN_API_KEY` environment variable with a secure random key
+- Use `DISABLE_ADMIN_AUTH=true` to bypass authentication (development only)
+- Failed attempts are logged at WARN level with request details
+- API keys are automatically redacted in configuration logs
+
+**Protected Endpoints:**
+- `GET /api/admin/tracking-updater/status` - Get tracking updater status
+- `POST /api/admin/tracking-updater/pause` - Pause automatic updates
+- `POST /api/admin/tracking-updater/resume` - Resume automatic updates
 
 ### UPS Automatic Updates
 The system supports automatic tracking updates for UPS shipments alongside existing USPS auto-updates:
@@ -169,6 +204,8 @@ The server automatically loads variables from a `.env` file if present. Environm
 - `CACHE_TTL` (default: 5m) - Cache time-to-live duration
 - `DISABLE_CACHE` (default: false) - Disable refresh response caching
 - `DISABLE_RATE_LIMIT` (default: false) - Disable rate limiting for development/testing
+- `DISABLE_ADMIN_AUTH` (default: false) - Disable admin API authentication for development/testing
+- `ADMIN_API_KEY` (required when auth enabled) - API key for admin endpoints authentication
 
 #### CLI Configuration
 - `PACKAGE_TRACKER_SERVER` (default: http://localhost:8080)

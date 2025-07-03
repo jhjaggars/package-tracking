@@ -238,3 +238,172 @@ func TestResponseWriter(t *testing.T) {
 		t.Errorf("Expected status 404, got %d", wrapper.statusCode)
 	}
 }
+
+func TestAuthMiddleware(t *testing.T) {
+	testAPIKey := "test-secret-key-123"
+	
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("authenticated"))
+	})
+
+	middleware := AuthMiddleware(testAPIKey)
+	protectedHandler := middleware(handler)
+
+	t.Run("ValidAPIKey", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/admin/status", nil)
+		req.Header.Set("Authorization", "Bearer "+testAPIKey)
+		w := httptest.NewRecorder()
+
+		protectedHandler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+
+		if w.Body.String() != "authenticated" {
+			t.Errorf("Expected body 'authenticated', got '%s'", w.Body.String())
+		}
+	})
+
+	t.Run("MissingAuthorizationHeader", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/admin/status", nil)
+		w := httptest.NewRecorder()
+
+		protectedHandler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+
+		if !strings.Contains(w.Body.String(), "Unauthorized") {
+			t.Error("Expected 'Unauthorized' in response body")
+		}
+	})
+
+	t.Run("InvalidAuthorizationFormat", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/admin/status", nil)
+		req.Header.Set("Authorization", "Basic "+testAPIKey) // Wrong format
+		w := httptest.NewRecorder()
+
+		protectedHandler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("InvalidAPIKey", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/admin/status", nil)
+		req.Header.Set("Authorization", "Bearer wrong-key")
+		w := httptest.NewRecorder()
+
+		protectedHandler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("EmptyBearerToken", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/admin/status", nil)
+		req.Header.Set("Authorization", "Bearer ")
+		w := httptest.NewRecorder()
+
+		protectedHandler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("BearerOnly", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/admin/status", nil)
+		req.Header.Set("Authorization", "Bearer")
+		w := httptest.NewRecorder()
+
+		protectedHandler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("CaseSensitiveAPIKey", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/admin/status", nil)
+		req.Header.Set("Authorization", "Bearer "+strings.ToUpper(testAPIKey))
+		w := httptest.NewRecorder()
+
+		protectedHandler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 for case-sensitive key, got %d", w.Code)
+		}
+	})
+}
+
+func TestGetClientIP(t *testing.T) {
+	tests := []struct {
+		name         string
+		remoteAddr   string
+		xForwardedFor string
+		xRealIP      string
+		expected     string
+	}{
+		{
+			name:       "RemoteAddr only",
+			remoteAddr: "192.168.1.1:12345",
+			expected:   "192.168.1.1",
+		},
+		{
+			name:          "X-Forwarded-For single IP",
+			remoteAddr:    "10.0.0.1:12345",
+			xForwardedFor: "203.0.113.1",
+			expected:      "203.0.113.1",
+		},
+		{
+			name:          "X-Forwarded-For multiple IPs",
+			remoteAddr:    "10.0.0.1:12345",
+			xForwardedFor: "203.0.113.1, 192.168.1.1, 10.0.0.1",
+			expected:      "203.0.113.1",
+		},
+		{
+			name:        "X-Real-IP",
+			remoteAddr:  "10.0.0.1:12345",
+			xRealIP:     "203.0.113.2",
+			expected:    "203.0.113.2",
+		},
+		{
+			name:          "X-Forwarded-For takes precedence over X-Real-IP",
+			remoteAddr:    "10.0.0.1:12345",
+			xForwardedFor: "203.0.113.1",
+			xRealIP:       "203.0.113.2",
+			expected:      "203.0.113.1",
+		},
+		{
+			name:       "RemoteAddr without port",
+			remoteAddr: "192.168.1.1",
+			expected:   "192.168.1.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/test", nil)
+			req.RemoteAddr = tt.remoteAddr
+			
+			if tt.xForwardedFor != "" {
+				req.Header.Set("X-Forwarded-For", tt.xForwardedFor)
+			}
+			
+			if tt.xRealIP != "" {
+				req.Header.Set("X-Real-IP", tt.xRealIP)
+			}
+
+			result := getClientIP(req)
+			if result != tt.expected {
+				t.Errorf("Expected IP '%s', got '%s'", tt.expected, result)
+			}
+		})
+	}
+}

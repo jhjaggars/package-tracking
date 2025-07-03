@@ -1,8 +1,10 @@
 package server
 
 import (
+	"crypto/subtle"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -97,6 +99,71 @@ func SecurityMiddleware(next http.Handler) http.Handler {
 		
 		next.ServeHTTP(w, r)
 	})
+}
+
+// AuthMiddleware validates API key authentication for admin routes
+func AuthMiddleware(apiKey string) func(http.Handler) http.Handler {
+	expectedKey := []byte(apiKey)
+	
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Extract Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				log.Printf("WARN: Unauthorized access attempt to %s %s from %s: missing authorization header", 
+					r.Method, r.URL.Path, getClientIP(r))
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			
+			// Check for Bearer token format
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				log.Printf("WARN: Unauthorized access attempt to %s %s from %s: invalid authorization format", 
+					r.Method, r.URL.Path, getClientIP(r))
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			
+			// Extract token
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			providedKey := []byte(token)
+			
+			// Use constant-time comparison to prevent timing attacks
+			if len(providedKey) != len(expectedKey) || 
+			   subtle.ConstantTimeCompare(providedKey, expectedKey) != 1 {
+				log.Printf("WARN: Unauthorized access attempt to %s %s from %s: invalid API key", 
+					r.Method, r.URL.Path, getClientIP(r))
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			
+			// Authentication successful, proceed to next handler
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// getClientIP extracts the client IP address from the request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for proxies)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP in the list
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+	
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	
+	// Fall back to RemoteAddr
+	if idx := strings.LastIndex(r.RemoteAddr, ":"); idx != -1 {
+		return r.RemoteAddr[:idx]
+	}
+	return r.RemoteAddr
 }
 
 // responseWriter wraps http.ResponseWriter to capture status code

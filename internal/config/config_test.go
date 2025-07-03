@@ -9,7 +9,7 @@ import (
 func TestLoad(t *testing.T) {
 	// Save original environment
 	originalEnv := make(map[string]string)
-	envVars := []string{"SERVER_PORT", "SERVER_HOST", "DB_PATH", "UPDATE_INTERVAL", "LOG_LEVEL", "DISABLE_CACHE"}
+	envVars := []string{"SERVER_PORT", "SERVER_HOST", "DB_PATH", "UPDATE_INTERVAL", "LOG_LEVEL", "DISABLE_CACHE", "DISABLE_ADMIN_AUTH", "ADMIN_API_KEY"}
 	for _, key := range envVars {
 		originalEnv[key] = os.Getenv(key)
 	}
@@ -31,6 +31,8 @@ func TestLoad(t *testing.T) {
 		for _, key := range envVars {
 			os.Unsetenv(key)
 		}
+		// Disable admin auth for default test
+		os.Setenv("DISABLE_ADMIN_AUTH", "true")
 
 		config, err := Load()
 		if err != nil {
@@ -60,6 +62,14 @@ func TestLoad(t *testing.T) {
 		if config.DisableCache != false {
 			t.Errorf("Expected default disable cache false, got %v", config.DisableCache)
 		}
+
+		if config.DisableAdminAuth != true {
+			t.Errorf("Expected disable admin auth true (overridden), got %v", config.DisableAdminAuth)
+		}
+
+		if config.AdminAPIKey != "" {
+			t.Errorf("Expected default admin API key empty, got %s", config.AdminAPIKey)
+		}
 	})
 
 	t.Run("EnvironmentOverrides", func(t *testing.T) {
@@ -68,6 +78,7 @@ func TestLoad(t *testing.T) {
 		os.Setenv("DB_PATH", "/tmp/test.db")
 		os.Setenv("UPDATE_INTERVAL", "30m")
 		os.Setenv("LOG_LEVEL", "debug")
+		os.Setenv("DISABLE_ADMIN_AUTH", "true")
 
 		config, err := Load()
 		if err != nil {
@@ -121,6 +132,7 @@ func TestLoad(t *testing.T) {
 		
 		os.Setenv("USPS_API_KEY", "usps123")
 		os.Setenv("UPS_API_KEY", "ups456")
+		os.Setenv("DISABLE_ADMIN_AUTH", "true")
 
 		config, err := Load()
 		if err != nil {
@@ -143,6 +155,7 @@ func TestLoad(t *testing.T) {
 		}
 		
 		os.Setenv("DISABLE_CACHE", "true")
+		os.Setenv("DISABLE_ADMIN_AUTH", "true")
 
 		config, err := Load()
 		if err != nil {
@@ -155,6 +168,55 @@ func TestLoad(t *testing.T) {
 
 		if !config.GetDisableCache() {
 			t.Errorf("Expected GetDisableCache() to return true")
+		}
+	})
+
+	t.Run("AdminAuth", func(t *testing.T) {
+		// Clear any invalid env vars from previous tests
+		for _, key := range envVars {
+			os.Unsetenv(key)
+		}
+		
+		os.Setenv("ADMIN_API_KEY", "secret123")
+
+		config, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if config.AdminAPIKey != "secret123" {
+			t.Errorf("Expected admin API key secret123, got %s", config.AdminAPIKey)
+		}
+
+		if config.GetAdminAPIKey() != "secret123" {
+			t.Errorf("Expected GetAdminAPIKey() to return secret123, got %s", config.GetAdminAPIKey())
+		}
+
+		if config.GetDisableAdminAuth() {
+			t.Errorf("Expected GetDisableAdminAuth() to return false")
+		}
+	})
+
+	t.Run("DisableAdminAuth", func(t *testing.T) {
+		// Clear any invalid env vars from previous tests
+		for _, key := range envVars {
+			os.Unsetenv(key)
+		}
+		
+		os.Setenv("DISABLE_ADMIN_AUTH", "true")
+
+		config, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if !config.GetDisableAdminAuth() {
+			t.Errorf("Expected GetDisableAdminAuth() to return true")
+		}
+
+		// Should not require API key when auth is disabled
+		if config.AdminAPIKey != "" {
+			t.Errorf("Expected empty API key when auth disabled, got %s", config.AdminAPIKey)
 		}
 	})
 }
@@ -185,6 +247,8 @@ func TestValidate(t *testing.T) {
 			CacheTTL:                    5 * time.Minute,
 			AutoUpdateBatchTimeout:      30 * time.Second,
 			AutoUpdateIndividualTimeout: 10 * time.Second,
+			DisableAdminAuth:            false,
+			AdminAPIKey:                 "test-key-123",
 		}
 
 		if err := config.validate(); err != nil {
@@ -230,4 +294,87 @@ func TestValidate(t *testing.T) {
 			t.Error("Expected error for negative update interval")
 		}
 	})
+
+	t.Run("MissingAdminAPIKey", func(t *testing.T) {
+		config := &Config{
+			ServerPort:                  "8080",
+			ServerHost:                  "localhost",
+			DBPath:                      "./test.db",
+			UpdateInterval:              time.Hour,
+			LogLevel:                    "info",
+			AutoUpdateBatchSize:         5,
+			AutoUpdateMaxRetries:        3,
+			AutoUpdateFailureThreshold:  10,
+			CacheTTL:                    5 * time.Minute,
+			AutoUpdateBatchTimeout:      30 * time.Second,
+			AutoUpdateIndividualTimeout: 10 * time.Second,
+			DisableAdminAuth:            false, // Auth enabled
+			AdminAPIKey:                 "",    // But no key
+		}
+
+		if err := config.validate(); err == nil {
+			t.Error("Expected error for missing admin API key when auth is enabled")
+		}
+	})
+
+	t.Run("DisabledAdminAuthWithoutKey", func(t *testing.T) {
+		config := &Config{
+			ServerPort:                  "8080",
+			ServerHost:                  "localhost",
+			DBPath:                      "./test.db",
+			UpdateInterval:              time.Hour,
+			LogLevel:                    "info",
+			AutoUpdateBatchSize:         5,
+			AutoUpdateMaxRetries:        3,
+			AutoUpdateFailureThreshold:  10,
+			CacheTTL:                    5 * time.Minute,
+			AutoUpdateBatchTimeout:      30 * time.Second,
+			AutoUpdateIndividualTimeout: 10 * time.Second,
+			DisableAdminAuth:            true, // Auth disabled
+			AdminAPIKey:                 "",   // No key needed
+		}
+
+		if err := config.validate(); err != nil {
+			t.Errorf("Expected no error when admin auth is disabled, got: %v", err)
+		}
+	})
+}
+
+func TestGetAdminAPIKeyForLogging(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiKey   string
+		expected string
+	}{
+		{
+			name:     "Empty key",
+			apiKey:   "",
+			expected: "(not set)",
+		},
+		{
+			name:     "Short key",
+			apiKey:   "abc",
+			expected: "***",
+		},
+		{
+			name:     "Normal key",
+			apiKey:   "secret123456",
+			expected: "secr***3456",
+		},
+		{
+			name:     "Long key",
+			apiKey:   "this-is-a-very-long-secret-key-123456789",
+			expected: "this***6789",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &Config{AdminAPIKey: tt.apiKey}
+			result := config.GetAdminAPIKeyForLogging()
+			if result != tt.expected {
+				t.Errorf("Expected %s, got %s", tt.expected, result)
+			}
+		})
+	}
 }

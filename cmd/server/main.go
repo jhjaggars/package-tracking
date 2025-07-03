@@ -169,6 +169,14 @@ func main() {
 		
 		// Admin routes
 		r.Route("/admin", func(r chi.Router) {
+			// Apply authentication middleware if not disabled
+			if !cfg.GetDisableAdminAuth() {
+				r.Use(server.AuthMiddleware(cfg.GetAdminAPIKey()))
+				log.Printf("Admin API authentication enabled")
+			} else {
+				log.Printf("Admin API authentication disabled")
+			}
+			
 			r.Get("/tracking-updater/status", adminHandler.GetTrackingUpdaterStatus)
 			r.Post("/tracking-updater/pause", adminHandler.PauseTrackingUpdater)
 			r.Post("/tracking-updater/resume", adminHandler.ResumeTrackingUpdater)
