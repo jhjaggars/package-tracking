@@ -126,9 +126,32 @@ The system implements intelligent caching for refresh requests to improve perfor
 
 **Cache Management:**
 - Set `DISABLE_CACHE=true` to disable caching entirely
-- Cache entries automatically expire after 5 minutes
+- Cache entries automatically expire after configurable TTL (default: 5 minutes)
 - Background cleanup removes expired entries every minute
 - Cache invalidation on shipment updates ensures data consistency
+
+### UPS Automatic Updates
+The system supports automatic tracking updates for UPS shipments alongside existing USPS auto-updates:
+
+**Features:**
+- Unified scheduling - UPS and USPS updates run in the same cycle
+- OAuth 2.0 authentication support with `UPS_CLIENT_ID` and `UPS_CLIENT_SECRET`
+- Backward compatibility with legacy `UPS_API_KEY` (deprecated)
+- Configurable failure threshold to prevent excessive API calls
+- Per-carrier cutoff day configuration with global fallback
+- Automatic fallback from API to scraping when credentials unavailable
+
+**Behavior:**
+- UPS shipments are queried from database using carrier-specific filters
+- Cache-based rate limiting applies consistently across all carriers
+- Failed updates increment failure count; shipments disabled after threshold reached
+- Cache TTL is configurable via `CACHE_TTL` environment variable
+- Updates respect the same 5-minute rate limiting as manual refreshes
+
+**Configuration:**
+- Use `UPS_AUTO_UPDATE_ENABLED=false` to disable UPS auto-updates
+- Configure `UPS_AUTO_UPDATE_CUTOFF_DAYS` for UPS-specific cutoff (defaults to global setting)
+- Set `AUTO_UPDATE_FAILURE_THRESHOLD` to control when shipments are disabled due to failures
 
 ### Environment Variables
 Configuration via environment variables with sensible defaults.
@@ -138,8 +161,12 @@ The server automatically loads variables from a `.env` file if present. Environm
 - `SERVER_HOST` (default: localhost)
 - `DB_PATH` (default: ./database.db)
 - `UPDATE_INTERVAL` (default: 1h)
-- `USPS_API_KEY`, `UPS_API_KEY`, `FEDEX_API_KEY`, `FEDEX_SECRET_KEY`, `FEDEX_API_URL`, `DHL_API_KEY` (optional)
+- `USPS_API_KEY`, `UPS_API_KEY` (deprecated), `UPS_CLIENT_ID`, `UPS_CLIENT_SECRET`, `FEDEX_API_KEY`, `FEDEX_SECRET_KEY`, `FEDEX_API_URL`, `DHL_API_KEY` (optional)
 - `LOG_LEVEL` (default: info)
+- `AUTO_UPDATE_FAILURE_THRESHOLD` (default: 10) - Number of consecutive failures before disabling auto-updates for a shipment
+- `UPS_AUTO_UPDATE_ENABLED` (default: true) - Enable/disable UPS automatic updates
+- `UPS_AUTO_UPDATE_CUTOFF_DAYS` (default: 30) - Cutoff days for UPS shipments (falls back to AUTO_UPDATE_CUTOFF_DAYS if 0)
+- `CACHE_TTL` (default: 5m) - Cache time-to-live duration
 - `DISABLE_CACHE` (default: false) - Disable refresh response caching
 - `DISABLE_RATE_LIMIT` (default: false) - Disable rate limiting for development/testing
 

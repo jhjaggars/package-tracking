@@ -124,8 +124,13 @@ func (u *TrackingUpdater) performUpdates() {
 	u.logger.Info("Starting automatic tracking updates")
 	startTime := time.Now()
 
-	// Currently only implementing USPS as specified in the requirements
+	// Update USPS shipments
 	u.updateUSPSShipments()
+	
+	// Update UPS shipments if enabled
+	if u.config.UPSAutoUpdateEnabled {
+		u.updateUPSShipments()
+	}
 
 	duration := time.Since(startTime)
 	u.logger.Info("Completed automatic tracking updates", "duration", duration)
@@ -139,7 +144,7 @@ func (u *TrackingUpdater) updateUSPSShipments() {
 		"cutoff_date", cutoffDate,
 		"cutoff_days", u.config.AutoUpdateCutoffDays)
 
-	shipments, err := u.shipmentStore.GetActiveForAutoUpdate("usps", cutoffDate)
+	shipments, err := u.shipmentStore.GetActiveForAutoUpdate("usps", cutoffDate, u.config.AutoUpdateFailureThreshold)
 	if err != nil {
 		u.logger.Error("Failed to fetch USPS shipments for auto-update", "error", err)
 		return
@@ -153,6 +158,37 @@ func (u *TrackingUpdater) updateUSPSShipments() {
 	u.logger.Info("Found USPS shipments for auto-update", "count", len(shipments))
 
 	u.logger.Info("Processing USPS shipments with cache-aware rate limiting", "count", len(shipments))
+
+	// Process shipments with unified cache-based rate limiting
+	u.processShipmentsWithCache(shipments)
+}
+
+// updateUPSShipments updates all eligible UPS shipments
+func (u *TrackingUpdater) updateUPSShipments() {
+	// Use UPS-specific cutoff days if configured, otherwise use global setting
+	cutoffDays := u.config.UPSAutoUpdateCutoffDays
+	if cutoffDays == 0 {
+		cutoffDays = u.config.AutoUpdateCutoffDays
+	}
+	
+	cutoffDate := time.Now().AddDate(0, 0, -cutoffDays)
+	
+	u.logger.Debug("Fetching UPS shipments for auto-update",
+		"cutoff_date", cutoffDate,
+		"cutoff_days", cutoffDays)
+
+	shipments, err := u.shipmentStore.GetActiveForAutoUpdate("ups", cutoffDate, u.config.AutoUpdateFailureThreshold)
+	if err != nil {
+		u.logger.Error("Failed to fetch UPS shipments for auto-update", "error", err)
+		return
+	}
+
+	if len(shipments) == 0 {
+		u.logger.Debug("No UPS shipments found for auto-update")
+		return
+	}
+
+	u.logger.Info("Found UPS shipments for auto-update", "count", len(shipments))
 
 	// Process shipments with unified cache-based rate limiting
 	u.processShipmentsWithCache(shipments)
@@ -234,10 +270,12 @@ func (u *TrackingUpdater) processCachedResponse(shipment *database.Shipment, cac
 
 // performAPICallAndCache makes an API call and caches the result
 func (u *TrackingUpdater) performAPICallAndCache(shipment *database.Shipment) {
-	// Create USPS carrier client
-	uspsClient, _, err := u.carrierFactory.CreateClient("usps")
+	// Create carrier client based on shipment carrier
+	client, _, err := u.carrierFactory.CreateClient(shipment.Carrier)
 	if err != nil {
-		u.logger.Error("Failed to create USPS carrier client", "error", err)
+		u.logger.Error("Failed to create carrier client", 
+			"carrier", shipment.Carrier,
+			"error", err)
 		u.handleUpdateError(shipment, err)
 		return
 	}
@@ -248,11 +286,11 @@ func (u *TrackingUpdater) performAPICallAndCache(shipment *database.Shipment) {
 
 	req := &carriers.TrackingRequest{
 		TrackingNumbers: []string{shipment.TrackingNumber},
-		Carrier:         "usps",
+		Carrier:         shipment.Carrier,
 	}
 
 	// Make API call
-	resp, err := uspsClient.Track(ctx, req)
+	resp, err := client.Track(ctx, req)
 	if err != nil {
 		u.handleUpdateError(shipment, err)
 		return
@@ -308,12 +346,14 @@ func (u *TrackingUpdater) performAPICallAndCache(shipment *database.Shipment) {
 		u.logger.Info("Successfully updated and cached shipment",
 			"shipment_id", shipment.ID,
 			"tracking_number", shipment.TrackingNumber,
+			"carrier", shipment.Carrier,
 			"status_change", fmt.Sprintf("%s -> %s", originalStatus, shipment.Status),
 			"events", len(trackingInfo.Events))
 	} else {
 		u.logger.Warn("No tracking results for shipment",
 			"shipment_id", shipment.ID,
-			"tracking_number", shipment.TrackingNumber)
+			"tracking_number", shipment.TrackingNumber,
+			"carrier", shipment.Carrier)
 	}
 }
 

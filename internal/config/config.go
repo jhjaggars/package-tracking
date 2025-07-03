@@ -23,7 +23,9 @@ type Config struct {
 
 	// Carrier API keys
 	USPSAPIKey     string
-	UPSAPIKey      string
+	UPSAPIKey      string // Deprecated: Use UPSClientID and UPSClientSecret instead
+	UPSClientID    string
+	UPSClientSecret string
 	FedExAPIKey    string
 	FedExSecretKey string
 	FedExAPIURL    string
@@ -37,10 +39,18 @@ type Config struct {
 	DisableCache     bool
 
 	// Auto-update configuration
-	AutoUpdateEnabled    bool
-	AutoUpdateCutoffDays int
-	AutoUpdateBatchSize  int
-	AutoUpdateMaxRetries int
+	AutoUpdateEnabled           bool
+	AutoUpdateCutoffDays        int
+	AutoUpdateBatchSize         int
+	AutoUpdateMaxRetries        int
+	AutoUpdateFailureThreshold  int
+	
+	// Per-carrier auto-update configuration
+	UPSAutoUpdateEnabled        bool
+	UPSAutoUpdateCutoffDays     int
+
+	// Cache configuration
+	CacheTTL                    time.Duration
 
 	// Timeout configuration
 	AutoUpdateBatchTimeout      time.Duration
@@ -64,12 +74,14 @@ func Load() (*Config, error) {
 		UpdateInterval: getEnvDurationOrDefault("UPDATE_INTERVAL", "1h"),
 
 		// API keys (optional)
-		USPSAPIKey:     os.Getenv("USPS_API_KEY"),
-		UPSAPIKey:      os.Getenv("UPS_API_KEY"),
-		FedExAPIKey:    os.Getenv("FEDEX_API_KEY"),
-		FedExSecretKey: os.Getenv("FEDEX_SECRET_KEY"),
-		FedExAPIURL:    getEnvOrDefault("FEDEX_API_URL", "https://apis.fedex.com"),
-		DHLAPIKey:      os.Getenv("DHL_API_KEY"),
+		USPSAPIKey:      os.Getenv("USPS_API_KEY"),
+		UPSAPIKey:       os.Getenv("UPS_API_KEY"),
+		UPSClientID:     os.Getenv("UPS_CLIENT_ID"),
+		UPSClientSecret: os.Getenv("UPS_CLIENT_SECRET"),
+		FedExAPIKey:     os.Getenv("FEDEX_API_KEY"),
+		FedExSecretKey:  os.Getenv("FEDEX_SECRET_KEY"),
+		FedExAPIURL:     getEnvOrDefault("FEDEX_API_URL", "https://apis.fedex.com"),
+		DHLAPIKey:       os.Getenv("DHL_API_KEY"),
 
 		// Logging
 		LogLevel: getEnvOrDefault("LOG_LEVEL", "info"),
@@ -79,10 +91,18 @@ func Load() (*Config, error) {
 		DisableCache:     getEnvBoolOrDefault("DISABLE_CACHE", false),
 
 		// Auto-update configuration
-		AutoUpdateEnabled:    getEnvBoolOrDefault("AUTO_UPDATE_ENABLED", true),
-		AutoUpdateCutoffDays: getEnvIntOrDefault("AUTO_UPDATE_CUTOFF_DAYS", 30),
-		AutoUpdateBatchSize:  getEnvIntOrDefault("AUTO_UPDATE_BATCH_SIZE", 10),
-		AutoUpdateMaxRetries: getEnvIntOrDefault("AUTO_UPDATE_MAX_RETRIES", 10),
+		AutoUpdateEnabled:          getEnvBoolOrDefault("AUTO_UPDATE_ENABLED", true),
+		AutoUpdateCutoffDays:       getEnvIntOrDefault("AUTO_UPDATE_CUTOFF_DAYS", 30),
+		AutoUpdateBatchSize:        getEnvIntOrDefault("AUTO_UPDATE_BATCH_SIZE", 10),
+		AutoUpdateMaxRetries:       getEnvIntOrDefault("AUTO_UPDATE_MAX_RETRIES", 10),
+		AutoUpdateFailureThreshold: getEnvIntOrDefault("AUTO_UPDATE_FAILURE_THRESHOLD", 10),
+		
+		// Per-carrier auto-update configuration
+		UPSAutoUpdateEnabled:    getEnvBoolOrDefault("UPS_AUTO_UPDATE_ENABLED", true),
+		UPSAutoUpdateCutoffDays: getEnvIntOrDefault("UPS_AUTO_UPDATE_CUTOFF_DAYS", 30),
+
+		// Cache configuration
+		CacheTTL:                    getEnvDurationOrDefault("CACHE_TTL", "5m"),
 
 		// Timeout configuration
 		AutoUpdateBatchTimeout:      getEnvDurationOrDefault("AUTO_UPDATE_BATCH_TIMEOUT", "60s"),
@@ -142,6 +162,15 @@ func (c *Config) validate() error {
 	if c.AutoUpdateMaxRetries < 0 {
 		return fmt.Errorf("auto update max retries must be non-negative")
 	}
+	if c.AutoUpdateFailureThreshold < 0 {
+		return fmt.Errorf("auto update failure threshold must be non-negative")
+	}
+	if c.UPSAutoUpdateCutoffDays < 0 {
+		return fmt.Errorf("UPS auto update cutoff days must be non-negative")
+	}
+	if c.CacheTTL <= 0 {
+		return fmt.Errorf("cache TTL must be positive")
+	}
 
 	// Validate timeout configuration
 	if c.AutoUpdateBatchTimeout <= 0 {
@@ -182,6 +211,21 @@ func (c *Config) GetDisableRateLimit() bool {
 // GetDisableCache returns the cache disable flag
 func (c *Config) GetDisableCache() bool {
 	return c.DisableCache
+}
+
+// GetUPSClientID returns the UPS OAuth client ID
+func (c *Config) GetUPSClientID() string {
+	return c.UPSClientID
+}
+
+// GetUPSClientSecret returns the UPS OAuth client secret
+func (c *Config) GetUPSClientSecret() string {
+	return c.UPSClientSecret
+}
+
+// GetCacheTTL returns the cache TTL duration
+func (c *Config) GetCacheTTL() time.Duration {
+	return c.CacheTTL
 }
 
 // getEnvOrDefault returns environment variable value or default

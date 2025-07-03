@@ -174,6 +174,11 @@ func (m *Manager) GetTTL() time.Duration {
 	return m.ttl
 }
 
+// SetTTL updates the cache TTL duration
+func (m *Manager) SetTTL(ttl time.Duration) {
+	m.ttl = ttl
+}
+
 // loadFromDatabase loads all non-expired cache entries from database into memory
 func (m *Manager) loadFromDatabase() error {
 	entries, err := m.store.LoadAll()

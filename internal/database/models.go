@@ -320,7 +320,7 @@ func (s *ShipmentStore) UpdateRefreshTracking(id int) error {
 }
 
 // GetActiveForAutoUpdate returns active shipments for auto-update within cutoff date
-func (s *ShipmentStore) GetActiveForAutoUpdate(carrier string, cutoffDate time.Time) ([]Shipment, error) {
+func (s *ShipmentStore) GetActiveForAutoUpdate(carrier string, cutoffDate time.Time, failureThreshold int) ([]Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
 			  created_at, updated_at, expected_delivery, is_delivered,
 			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
@@ -331,10 +331,10 @@ func (s *ShipmentStore) GetActiveForAutoUpdate(carrier string, cutoffDate time.T
 			  AND carrier = ? 
 			  AND created_at > ?
 			  AND auto_refresh_enabled = true
-			  AND auto_refresh_fail_count < 10
+			  AND auto_refresh_fail_count < ?
 			  ORDER BY created_at DESC`
 	
-	rows, err := s.db.Query(query, carrier, cutoffDate)
+	rows, err := s.db.Query(query, carrier, cutoffDate, failureThreshold)
 	if err != nil {
 		return nil, err
 	}
