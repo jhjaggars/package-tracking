@@ -204,7 +204,7 @@ func TestIsAPIRoute(t *testing.T) {
 	}{
 		{"/api/shipments", true},
 		{"/api/health", true},
-		{"/api", false}, // Too short
+		{"/api", true}, // Now matches with HasPrefix
 		{"/", false},
 		{"/static/style.css", false},
 		{"/about", false},

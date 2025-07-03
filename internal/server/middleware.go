@@ -179,7 +179,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 // isAPIRoute checks if the path is an API route
 func isAPIRoute(path string) bool {
-	return len(path) > 4 && path[:4] == "/api"
+	return strings.HasPrefix(path, "/api")
 }
 
 // MethodMiddleware converts router methods to standard middleware
