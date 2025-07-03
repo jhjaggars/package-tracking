@@ -41,6 +41,12 @@ func (c *DHLScrapingClient) ValidateTrackingNumber(trackingNumber string) bool {
 		return false
 	}
 	
+	// DHL tracking numbers must contain at least some digits
+	// This prevents common words like "INFORMATION" from being validated
+	if matched, _ := regexp.MatchString(`\d`, cleaned); !matched {
+		return false
+	}
+	
 	return true
 }
 

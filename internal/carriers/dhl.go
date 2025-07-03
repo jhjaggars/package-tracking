@@ -51,16 +51,27 @@ func (c *DHLClient) ValidateTrackingNumber(trackingNumber string) bool {
 		return false
 	}
 	
-	// Remove spaces and keep only digits
+	// Remove spaces and normalize
 	cleaned := strings.ReplaceAll(trackingNumber, " ", "")
 	
-	// Check if it's all digits
-	if matched, _ := regexp.MatchString(`^\d+$`, cleaned); !matched {
+	// Check basic alphanumeric pattern
+	if matched, _ := regexp.MatchString(`^[A-Za-z0-9]+$`, cleaned); !matched {
 		return false
 	}
 	
-	// DHL tracking numbers are typically 10 or 11 digits
-	return len(cleaned) == 10 || len(cleaned) == 11
+	// DHL tracking number lengths: 10-20 characters
+	length := len(cleaned)
+	if length < 10 || length > 20 {
+		return false
+	}
+	
+	// DHL tracking numbers must contain at least some digits
+	// This prevents common words like "INFORMATION" from being validated
+	if matched, _ := regexp.MatchString(`\d`, cleaned); !matched {
+		return false
+	}
+	
+	return true
 }
 
 // GetRateLimit returns current rate limit information
