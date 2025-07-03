@@ -44,9 +44,9 @@ func TestDHLClient_ValidateTrackingNumber(t *testing.T) {
 			want:           false,
 		},
 		{
-			name:           "too long",
+			name:           "valid 12 digits (DHL eCommerce)",
 			trackingNumber: "123456789012",
-			want:           false,
+			want:           true,
 		},
 		{
 			name:           "empty string",
@@ -54,8 +54,18 @@ func TestDHLClient_ValidateTrackingNumber(t *testing.T) {
 			want:           false,
 		},
 		{
-			name:           "contains letters",
+			name:           "valid alphanumeric (DHL service)",
 			trackingNumber: "1234567ABC",
+			want:           true,
+		},
+		{
+			name:           "no digits (letters only)",
+			trackingNumber: "INFORMATION",
+			want:           false,
+		},
+		{
+			name:           "too long (21+ characters)",
+			trackingNumber: "123456789012345678901",
 			want:           false,
 		},
 		{
