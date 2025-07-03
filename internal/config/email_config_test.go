@@ -438,7 +438,7 @@ func TestEmailConfigValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateEmailConfig(tc.config)
+			err := tc.config.validate()
 			
 			if tc.valid && err != nil {
 				t.Errorf("Expected valid config, but got error: %v", err)
@@ -675,23 +675,4 @@ func TestGetEnvIntOrDefault(t *testing.T) {
 	}
 }
 
-// Helper functions that would need to be implemented in the actual config package
-func validateEmailConfig(config *EmailConfig) error {
-	if config.Gmail.ClientID == "" {
-		return fmt.Errorf("Gmail client ID is required")
-	}
-	if config.Gmail.ClientSecret == "" {
-		return fmt.Errorf("Gmail client secret is required")
-	}
-	if config.API.URL == "" {
-		return fmt.Errorf("API URL is required")
-	}
-	if !strings.HasPrefix(config.API.URL, "http://") && !strings.HasPrefix(config.API.URL, "https://") {
-		return fmt.Errorf("invalid API URL format")
-	}
-	if config.Processing.CheckInterval <= 0 {
-		return fmt.Errorf("check interval must be positive")
-	}
-	return nil
-}
 

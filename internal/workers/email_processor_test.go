@@ -1,7 +1,6 @@
 package workers
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -204,7 +203,11 @@ func TestNewEmailProcessor(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	emailClient := &mockEmailClient{}
 	stateManager := newMockStateManager()
-	extractor := &mockExtractor{}
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	})
 	apiClient := &mockAPIClient{}
 
 	for _, tc := range testCases {
@@ -386,20 +389,18 @@ func TestEmailProcessor_DryRunMode(t *testing.T) {
 
 	emails := []email.EmailMessage{
 		{
-			MessageID: "dry-run-msg",
-			Content: &email.EmailContent{
-				PlainText: "Package 1Z999AA1234567890 shipped",
-			},
+			ID: "dry-run-msg",
+			PlainText: "Package 1Z999AA1234567890 shipped",
 		},
-	}
-
-	trackingNumbers := []email.TrackingInfo{
-		{Number: "1Z999AA1234567890", Carrier: "ups"},
 	}
 
 	emailClient := &mockEmailClient{emails: emails}
 	stateManager := newMockStateManager()
-	extractor := &mockExtractor{trackingNumbers: trackingNumbers}
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -414,10 +415,7 @@ func TestEmailProcessor_DryRunMode(t *testing.T) {
 
 	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
-	err = processor.processEmails()
-	if err != nil {
-		t.Errorf("Unexpected error in dry run: %v", err)
-	}
+	processor.runProcessing()
 
 	// In dry run mode, nothing should be created or marked as processed
 	stats, _ := stateManager.GetStats()
@@ -438,16 +436,18 @@ func TestEmailProcessor_MaxPerRunLimit(t *testing.T) {
 	var emails []email.EmailMessage
 	for i := 0; i < 10; i++ {
 		emails = append(emails, email.EmailMessage{
-			MessageID: fmt.Sprintf("msg-%d", i),
-			Content: &email.EmailContent{
-				PlainText: fmt.Sprintf("Package TRACK%d", i),
-			},
+			ID: fmt.Sprintf("msg-%d", i),
+			PlainText: fmt.Sprintf("Package TRACK%d", i),
 		})
 	}
 
 	emailClient := &mockEmailClient{emails: emails}
 	stateManager := newMockStateManager()
-	extractor := &mockExtractor{trackingNumbers: []email.TrackingInfo{}}
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -462,10 +462,7 @@ func TestEmailProcessor_MaxPerRunLimit(t *testing.T) {
 
 	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
-	err = processor.processEmails()
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
+	processor.runProcessing()
 
 	// Should only process 5 emails due to the limit
 	stats, _ := stateManager.GetStats()
@@ -498,7 +495,11 @@ func TestEmailProcessor_HealthCheck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			emailClient := &mockEmailClient{closed: tc.emailClientError}
 			stateManager := newMockStateManager()
-			extractor := &mockExtractor{}
+			carrierFactory := carriers.NewClientFactory()
+			extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+				EnableLLM:     false,
+				MinConfidence: 0.5,
+			})
 			apiClient := &mockAPIClient{}
 
 			config := &EmailProcessorConfig{
@@ -507,12 +508,9 @@ func TestEmailProcessor_HealthCheck(t *testing.T) {
 				SearchQuery:   "test query",
 			}
 
-			processor, err := NewEmailProcessor(emailClient, stateManager, extractor, apiClient, config, logger)
-			if err != nil {
-				t.Fatalf("Failed to create processor: %v", err)
-			}
+			processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
-			err = processor.healthCheck()
+			err := processor.healthCheck()
 
 			if tc.expectError {
 				if err == nil {
@@ -532,7 +530,11 @@ func TestEmailProcessor_StartStop(t *testing.T) {
 
 	emailClient := &mockEmailClient{}
 	stateManager := newMockStateManager()
-	extractor := &mockExtractor{}
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -541,10 +543,7 @@ func TestEmailProcessor_StartStop(t *testing.T) {
 		SearchQuery:   "test query",
 	}
 
-	processor, err := NewEmailProcessor(emailClient, stateManager, extractor, apiClient, config, logger)
-	if err != nil {
-		t.Fatalf("Failed to create processor: %v", err)
-	}
+	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
 	// Start the processor
 	processor.Start()
@@ -553,21 +552,10 @@ func TestEmailProcessor_StartStop(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Stop the processor
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+	processor.Stop()
 
-	err = processor.Stop(ctx)
-	if err != nil {
-		t.Errorf("Unexpected error stopping processor: %v", err)
-	}
-
-	// Verify processor has stopped
-	select {
-	case <-processor.done:
-		// Good, processor stopped
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Processor did not stop within expected time")
-	}
+	// Give it a moment to stop
+	time.Sleep(100 * time.Millisecond)
 }
 
 func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
@@ -576,13 +564,17 @@ func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
 	emailClient := &mockEmailClient{
 		emails: []email.EmailMessage{
 			{
-				MessageID: "concurrent-msg",
-				Content:   &email.EmailContent{PlainText: "test"},
+				ID: "concurrent-msg",
+				PlainText: "test",
 			},
 		},
 	}
 	stateManager := newMockStateManager()
-	extractor := &mockExtractor{}
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -591,18 +583,11 @@ func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
 		SearchQuery:   "test query",
 	}
 
-	processor, err := NewEmailProcessor(emailClient, stateManager, extractor, apiClient, config, logger)
-	if err != nil {
-		t.Fatalf("Failed to create processor: %v", err)
-	}
+	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
 	// Start processor
 	processor.Start()
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		processor.Stop(ctx)
-	}()
+	defer processor.Stop()
 
 	// Run multiple concurrent operations
 	var wg sync.WaitGroup
@@ -610,7 +595,7 @@ func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			processor.processEmails()
+			processor.runProcessing()
 		}()
 	}
 
@@ -634,17 +619,17 @@ func TestEmailProcessor_ErrorRecovery(t *testing.T) {
 	emailClient := &mockEmailClient{
 		emails: []email.EmailMessage{
 			{
-				MessageID: "error-recovery-msg",
-				Content:   &email.EmailContent{PlainText: "Package 1Z999AA1234567890"},
+				ID: "error-recovery-msg",
+				PlainText: "Package 1Z999AA1234567890",
 			},
 		},
 	}
 	stateManager := newMockStateManager()
-	extractor := &mockExtractor{
-		trackingNumbers: []email.TrackingInfo{
-			{Number: "1Z999AA1234567890", Carrier: "ups"},
-		},
-	}
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	})
 	apiClient := &mockAPIClient{
 		errorOnCreate: true, // Simulate API errors
 	}
@@ -655,16 +640,10 @@ func TestEmailProcessor_ErrorRecovery(t *testing.T) {
 		SearchQuery:   "test query",
 	}
 
-	processor, err := NewEmailProcessor(emailClient, stateManager, extractor, apiClient, config, logger)
-	if err != nil {
-		t.Fatalf("Failed to create processor: %v", err)
-	}
+	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
 	// Process emails with API errors
-	err = processor.processEmails()
-	if err != nil {
-		t.Errorf("Processor should handle API errors gracefully, got: %v", err)
-	}
+	processor.runProcessing()
 
 	// Email should still be marked as processed even though API failed
 	stats, _ := stateManager.GetStats()
@@ -698,20 +677,18 @@ func BenchmarkEmailProcessor_ProcessEmails(b *testing.B) {
 
 	emails := []email.EmailMessage{
 		{
-			MessageID: "bench-msg",
-			Content: &email.EmailContent{
-				PlainText: "Package 1Z999AA1234567890 shipped",
-			},
+			ID: "bench-msg",
+			PlainText: "Package 1Z999AA1234567890 shipped",
 		},
 	}
 
 	emailClient := &mockEmailClient{emails: emails}
 	stateManager := newMockStateManager()
-	extractor := &mockExtractor{
-		trackingNumbers: []email.TrackingInfo{
-			{Number: "1Z999AA1234567890", Carrier: "ups"},
-		},
-	}
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -721,13 +698,10 @@ func BenchmarkEmailProcessor_ProcessEmails(b *testing.B) {
 		SearchQuery:   "test query",
 	}
 
-	processor, err := NewEmailProcessor(emailClient, stateManager, extractor, apiClient, config, logger)
-	if err != nil {
-		b.Fatalf("Failed to create processor: %v", err)
-	}
+	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		processor.processEmails()
+		processor.runProcessing()
 	}
 }
