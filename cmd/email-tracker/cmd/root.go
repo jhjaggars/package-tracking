@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -137,11 +139,27 @@ func loadConfiguration() (*config.EmailConfig, error) {
 	var cfg *config.EmailConfig
 	var err error
 	
-	// Load configuration with optional .env file
+	// Load configuration with Viper (supports YAML, TOML, JSON, .env)
 	if configFile != "" {
-		cfg, err = config.LoadEmailConfigWithEnvFile(configFile)
+		// Check if it's a .env file or a structured config file
+		if strings.HasSuffix(configFile, ".env") || !strings.Contains(configFile, ".") || strings.HasPrefix(filepath.Base(configFile), ".env") {
+			// Use legacy .env loader for .env files (includes security validation)
+			cfg, err = config.LoadEmailConfigWithEnvFile(configFile)
+		} else {
+			// Validate config file path for security (prevent directory traversal)
+			if err := config.ValidateConfigFilePath(configFile); err != nil {
+				return nil, fmt.Errorf("failed to load configuration: %w", err)
+			}
+			// Use Viper loader for YAML/TOML/JSON files
+			cfg, err = config.LoadEmailConfigViperWithFile(configFile)
+		}
 	} else {
-		cfg, err = config.LoadEmailConfig()
+		// Try Viper first (supports auto-discovery), fall back to legacy
+		cfg, err = config.LoadEmailConfigViper()
+		if err != nil {
+			// Fall back to legacy .env loader
+			cfg, err = config.LoadEmailConfig()
+		}
 	}
 	
 	if err != nil {
@@ -218,7 +236,20 @@ func runEmailTracker(cmd *cobra.Command, args []string) error {
 		DebugMode:           cfg.Processing.DebugMode,
 	}
 	
-	extractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig)
+	// Convert to LLM config format
+	llmConfig := &parser.LLMConfig{
+		Provider:    cfg.LLM.Provider,
+		Model:       cfg.LLM.Model,
+		APIKey:      cfg.LLM.APIKey,
+		Endpoint:    cfg.LLM.Endpoint,
+		MaxTokens:   cfg.LLM.MaxTokens,
+		Temperature: cfg.LLM.Temperature,
+		Timeout:     cfg.LLM.Timeout,
+		RetryCount:  cfg.LLM.RetryCount,
+		Enabled:     cfg.LLM.Enabled,
+	}
+	
+	extractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig, llmConfig)
 	logger.Info("Tracking extractor initialized")
 	
 	// Initialize state manager

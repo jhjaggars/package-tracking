@@ -43,7 +43,7 @@ func TestEmailProcessor_HealthCheckFixed(t *testing.T) {
 			extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 				EnableLLM:     false,
 				MinConfidence: 0.5,
-			})
+			}, &parser.LLMConfig{Enabled: false})
 			apiClient := &simpleAPIClient{}
 
 			config := &EmailProcessorConfig{
@@ -92,7 +92,7 @@ func TestEmailProcessor_WorkflowFixed(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &simpleAPIClient{}
 
 	config := &EmailProcessorConfig{

@@ -168,7 +168,7 @@ func TestEmailProcessingWorkflow(t *testing.T) {
 		UseHybridValidation: true,
 		DebugMode:           emailConfig.Processing.DebugMode,
 	}
-	extractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig)
+	extractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig, &parser.LLMConfig{Enabled: false})
 
 	// Create API client
 	apiClientConfig := &api.ClientConfig{
@@ -373,7 +373,7 @@ func TestEmailProcessingWithAPIFailures(t *testing.T) {
 
 	extractor := parser.NewTrackingExtractor(createMockCarrierFactory(), &parser.ExtractorConfig{
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 
 	apiClient, _ := api.NewClient(&api.ClientConfig{
 		BaseURL:    emailConfig.API.URL,

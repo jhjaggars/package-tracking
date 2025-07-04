@@ -17,7 +17,7 @@ func TestSimpleUPSExtraction(t *testing.T) {
 		DebugMode:     true,
 	}
 	
-	extractor := NewTrackingExtractor(carrierFactory, config)
+	extractor := NewTrackingExtractor(carrierFactory, config, &LLMConfig{Enabled: false})
 	
 	content := &email.EmailContent{
 		PlainText: "Your package with tracking number 1Z999AA1234567890 has been shipped.",
