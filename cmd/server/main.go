@@ -41,7 +41,7 @@ var embeddedFiles embed.FS
 
 func main() {
 	// Load configuration
-	cfg, err := config.Load()
+	cfg, err := config.LoadServerConfig()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
