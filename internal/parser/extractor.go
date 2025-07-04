@@ -30,7 +30,7 @@ type ExtractorConfig struct {
 }
 
 // NewTrackingExtractor creates a new tracking number extractor
-func NewTrackingExtractor(carrierFactory *carriers.ClientFactory, config *ExtractorConfig) *TrackingExtractor {
+func NewTrackingExtractor(carrierFactory *carriers.ClientFactory, config *ExtractorConfig, llmConfig *LLMConfig) *TrackingExtractor {
 	if config == nil {
 		config = &ExtractorConfig{
 			EnableLLM:           false,
@@ -50,9 +50,19 @@ func NewTrackingExtractor(carrierFactory *carriers.ClientFactory, config *Extrac
 		// Note: EnableLLM, UseHybridValidation, and DebugMode default to false which is correct
 	}
 	
+	// Initialize LLM extractor based on configuration
+	var llmExtractor LLMExtractor
+	if config.EnableLLM && llmConfig != nil {
+		// Use the LLM extractor factory to create appropriate extractor
+		llmExtractor = NewLLMExtractor(llmConfig)
+	} else {
+		llmExtractor = NewNoOpLLMExtractor()
+	}
+	
 	return &TrackingExtractor{
 		carrierFactory: carrierFactory,
 		patterns:       NewPatternManager(),
+		llmExtractor:   llmExtractor,
 		config:         config,
 	}
 }

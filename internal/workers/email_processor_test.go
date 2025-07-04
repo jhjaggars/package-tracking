@@ -17,25 +17,25 @@ import (
 // Mock implementations for testing
 
 type mockEmailClient struct {
-	emails      []email.EmailMessage
-	searchDelay time.Duration
-	errorOnSearch bool
-	errorOnGet   bool
-	closed       bool
+	emails          []email.EmailMessage
+	searchDelay     time.Duration
+	errorOnSearch   bool
+	errorOnGet      bool
+	closed          bool
 	lastSearchQuery string // Track the last search query used
 }
 
 func (m *mockEmailClient) Search(query string) ([]email.EmailMessage, error) {
 	m.lastSearchQuery = query // Store the query for verification
-	
+
 	if m.errorOnSearch {
 		return nil, fmt.Errorf("mock search error")
 	}
-	
+
 	if m.searchDelay > 0 {
 		time.Sleep(m.searchDelay)
 	}
-	
+
 	return m.emails, nil
 }
 
@@ -43,13 +43,13 @@ func (m *mockEmailClient) GetMessage(id string) (*email.EmailMessage, error) {
 	if m.errorOnGet {
 		return nil, fmt.Errorf("mock get message error")
 	}
-	
+
 	for _, msg := range m.emails {
 		if msg.ID == id {
 			return &msg, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("message not found: %s", id)
 }
 
@@ -66,8 +66,8 @@ func (m *mockEmailClient) Close() error {
 }
 
 type mockStateManager struct {
-	processed map[string]bool
-	mu        sync.RWMutex
+	processed   map[string]bool
+	mu          sync.RWMutex
 	errorOnMark bool
 }
 
@@ -87,7 +87,7 @@ func (m *mockStateManager) MarkProcessed(entry *email.StateEntry) error {
 	if m.errorOnMark {
 		return fmt.Errorf("mock mark processed error")
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.processed[entry.GmailMessageID] = true
@@ -120,11 +120,11 @@ func (m *mockExtractor) Extract(content *email.EmailContent) ([]email.TrackingIn
 	if m.errorOnExtract {
 		return nil, fmt.Errorf("mock extraction error")
 	}
-	
+
 	if m.extractDelay > 0 {
 		time.Sleep(m.extractDelay)
 	}
-	
+
 	return m.trackingNumbers, nil
 }
 
@@ -139,11 +139,11 @@ func (m *mockAPIClient) CreateShipment(tracking email.TrackingInfo) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
-	
+
 	if m.errorOnCreate {
 		return fmt.Errorf("mock API error")
 	}
-	
+
 	m.createdShipments = append(m.createdShipments, tracking)
 	return nil
 }
@@ -214,7 +214,7 @@ func TestNewEmailProcessor(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	for _, tc := range testCases {
@@ -247,18 +247,18 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	testCases := []struct {
-		name                 string
-		emails              []email.EmailMessage
-		alreadyProcessed    []string
-		expectProcessed     int
-		expectCreated       int
-		apiClientError      bool
+		name             string
+		emails           []email.EmailMessage
+		alreadyProcessed []string
+		expectProcessed  int
+		expectCreated    int
+		apiClientError   bool
 	}{
 		{
 			name: "Process new emails with tracking",
 			emails: []email.EmailMessage{
 				{
-					ID: "msg-001",
+					ID:        "msg-001",
 					PlainText: "Your UPS package with tracking number 1Z999AA1234567890 has shipped successfully.",
 					From:      "noreply@ups.com",
 					Subject:   "UPS Shipment Notification",
@@ -272,7 +272,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 			name: "Skip already processed emails",
 			emails: []email.EmailMessage{
 				{
-					ID: "msg-002",
+					ID:        "msg-002",
 					PlainText: "Your package has shipped",
 					From:      "test@example.com",
 				},
@@ -285,7 +285,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 			name: "Process emails with no tracking numbers",
 			emails: []email.EmailMessage{
 				{
-					ID: "msg-003",
+					ID:        "msg-003",
 					PlainText: "Thank you for your order",
 					From:      "orders@example.com",
 				},
@@ -297,18 +297,18 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 			name: "Handle emails with no trackable content",
 			emails: []email.EmailMessage{
 				{
-					ID: "msg-004",
+					ID:        "msg-004",
 					PlainText: "Test email with no trackable content",
 				},
 			},
-			expectProcessed: 1,     // Email still gets processed
-			expectCreated:   0,     // No shipments created due to no tracking
+			expectProcessed: 1, // Email still gets processed
+			expectCreated:   0, // No shipments created due to no tracking
 		},
 		{
 			name: "Handle API client errors",
 			emails: []email.EmailMessage{
 				{
-					ID: "msg-005",
+					ID:        "msg-005",
 					PlainText: "Your UPS package tracking number 1Z999AA1234567890 is ready for pickup.",
 				},
 			},
@@ -326,7 +326,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 			apiClient := &mockAPIClient{
 				errorOnCreate: tc.apiClientError,
 			}
-			
+
 			config := &EmailProcessorConfig{
 				CheckInterval:     5 * time.Minute,
 				MaxEmailsPerRun:   50,
@@ -336,7 +336,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 				RetryCount:        3,
 				RetryDelay:        1 * time.Second,
 			}
-			
+
 			// Use real extractor for all tests - more realistic integration testing
 			carrierFactory := carriers.NewClientFactory()
 			extractorConfig := &parser.ExtractorConfig{
@@ -344,7 +344,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 				MinConfidence: 0.5,
 				DebugMode:     false,
 			}
-			realExtractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig)
+			realExtractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig, &parser.LLMConfig{Enabled: false})
 			processor := NewEmailProcessor(config, emailClient, realExtractor, stateManager, apiClient, logger)
 
 			// Mark emails as already processed if specified
@@ -373,7 +373,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 						t.Logf("  %d: %s (%s) confidence=%.2f", i, tr.Number, tr.Carrier, tr.Confidence)
 					}
 				}
-				
+
 				// Debug: Test email client search
 				searchResults, err := emailClient.Search("test query")
 				if err != nil {
@@ -381,7 +381,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 				} else {
 					t.Logf("Email search found %d emails", len(searchResults))
 				}
-				
+
 				// Debug: Check if email is marked as processed
 				isProcessed, err := stateManager.IsProcessed(tc.emails[0].ID)
 				if err != nil {
@@ -390,7 +390,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 					t.Logf("Email %s is processed: %v", tc.emails[0].ID, isProcessed)
 				}
 			}
-			
+
 			// Debug: For the skip test, check state before and after
 			if tc.name == "Skip already processed emails" {
 				isProcessed, _ := stateManager.IsProcessed(tc.emails[0].ID)
@@ -424,7 +424,7 @@ func TestEmailProcessor_DryRunMode(t *testing.T) {
 
 	emails := []email.EmailMessage{
 		{
-			ID: "dry-run-msg",
+			ID:        "dry-run-msg",
 			PlainText: "Package 1Z999AA1234567890 shipped",
 		},
 	}
@@ -435,7 +435,7 @@ func TestEmailProcessor_DryRunMode(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -471,7 +471,7 @@ func TestEmailProcessor_MaxPerRunLimit(t *testing.T) {
 	var emails []email.EmailMessage
 	for i := 0; i < 10; i++ {
 		emails = append(emails, email.EmailMessage{
-			ID: fmt.Sprintf("msg-%d", i),
+			ID:        fmt.Sprintf("msg-%d", i),
 			PlainText: fmt.Sprintf("Package TRACK%d", i),
 		})
 	}
@@ -482,7 +482,7 @@ func TestEmailProcessor_MaxPerRunLimit(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -510,9 +510,9 @@ func TestEmailProcessor_HealthCheck(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	testCases := []struct {
-		name              string
-		emailClientError  bool
-		expectError       bool
+		name             string
+		emailClientError bool
+		expectError      bool
 	}{
 		{
 			name:             "Healthy dependencies",
@@ -534,13 +534,13 @@ func TestEmailProcessor_HealthCheck(t *testing.T) {
 			extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 				EnableLLM:     false,
 				MinConfidence: 0.5,
-			})
+			}, &parser.LLMConfig{Enabled: false})
 			apiClient := &mockAPIClient{}
 
 			config := &EmailProcessorConfig{
-				CheckInterval: 5 * time.Minute,
-				MaxEmailsPerRun:     50,
-				SearchQuery:   "test query",
+				CheckInterval:   5 * time.Minute,
+				MaxEmailsPerRun: 50,
+				SearchQuery:     "test query",
 			}
 
 			processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
@@ -569,13 +569,13 @@ func TestEmailProcessor_StartStop(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
-		CheckInterval: 100 * time.Millisecond, // Fast interval for testing
-		MaxEmailsPerRun:     50,
-		SearchQuery:   "test query",
+		CheckInterval:   100 * time.Millisecond, // Fast interval for testing
+		MaxEmailsPerRun: 50,
+		SearchQuery:     "test query",
 	}
 
 	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
@@ -599,7 +599,7 @@ func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
 	emailClient := &mockEmailClient{
 		emails: []email.EmailMessage{
 			{
-				ID: "concurrent-msg",
+				ID:        "concurrent-msg",
 				PlainText: "test",
 			},
 		},
@@ -609,7 +609,7 @@ func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -657,7 +657,7 @@ func TestEmailProcessor_ErrorRecovery(t *testing.T) {
 	emailClient := &mockEmailClient{
 		emails: []email.EmailMessage{
 			{
-				ID: "error-recovery-msg",
+				ID:        "error-recovery-msg",
 				PlainText: "Package 1Z999AA1234567890",
 			},
 		},
@@ -667,7 +667,7 @@ func TestEmailProcessor_ErrorRecovery(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{
 		errorOnCreate: true, // Simulate API errors
 	}
@@ -701,7 +701,7 @@ func TestEmailProcessor_ErrorRecovery(t *testing.T) {
 
 // Helper function to check if string contains substring
 func containsString(s, substr string) bool {
-	return len(substr) == 0 || (len(s) >= len(substr) && 
+	return len(substr) == 0 || (len(s) >= len(substr) &&
 		func() bool {
 			for i := 0; i <= len(s)-len(substr); i++ {
 				if s[i:i+len(substr)] == substr {
@@ -718,7 +718,7 @@ func BenchmarkEmailProcessor_ProcessEmails(b *testing.B) {
 
 	emails := []email.EmailMessage{
 		{
-			ID: "bench-msg",
+			ID:        "bench-msg",
 			PlainText: "Package 1Z999AA1234567890 shipped",
 		},
 	}
@@ -729,14 +729,14 @@ func BenchmarkEmailProcessor_ProcessEmails(b *testing.B) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
-		CheckInterval: 5 * time.Minute,
-		MaxEmailsPerRun:     50,
-		DryRun:        true, // Use dry run to avoid side effects
-		SearchQuery:   "test query",
+		CheckInterval:   5 * time.Minute,
+		MaxEmailsPerRun: 50,
+		DryRun:          true, // Use dry run to avoid side effects
+		SearchQuery:     "test query",
 	}
 
 	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
@@ -766,7 +766,7 @@ func TestEmailProcessor_SearchQueryNoRedundantBuilding(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -797,3 +797,4 @@ func TestEmailProcessor_SearchQueryNoRedundantBuilding(t *testing.T) {
 
 	t.Logf("Successfully verified custom search query is used: %s", emailClient.lastSearchQuery)
 }
+

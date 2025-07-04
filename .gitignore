@@ -76,3 +76,5 @@ temp/
 *.log.env
 gmail-tokens.json
 email-tracker.yaml
+.env.bak
+.bak
