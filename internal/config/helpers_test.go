@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -199,5 +200,64 @@ TEST_VAR5=value5
 	// Clean up
 	for _, v := range envVars {
 		os.Unsetenv(v)
+	}
+}
+
+func TestValidateEnvFilePath(t *testing.T) {
+	tests := []struct {
+		name      string
+		filename  string
+		expectErr bool
+		errMsg    string
+	}{
+		{"empty filename", "", false, ""},
+		{"valid relative path", ".env.test", false, ""},
+		{"valid env extension", "config.env", false, ""},
+		{"directory traversal with ..", "../../../etc/passwd", true, "cannot contain '..'"},
+		{"relative path with ..", "../config/.env", true, "cannot contain '..'"},
+		{"invalid extension", "config.txt", true, "must have .env extension"},
+		{"no extension allowed", "config", false, ""},
+		{"nested path allowed", "configs/prod.env", false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateEnvFilePath(tt.filename)
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error for %s, but got none", tt.filename)
+				} else if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Expected error containing '%s', got: %v", tt.errMsg, err)
+				}
+			} else if err != nil {
+				t.Errorf("Expected no error for %s, but got: %v", tt.filename, err)
+			}
+		})
+	}
+}
+
+func TestLoadEnvFileWithValidation(t *testing.T) {
+	// Test that malicious paths are rejected
+	err := LoadEnvFile("../../../etc/passwd")
+	if err == nil {
+		t.Error("Expected error for directory traversal attempt")
+	}
+	
+	// Test that valid paths work
+	tmpFile, err := os.CreateTemp("", "test*.env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	
+	if _, err := tmpFile.WriteString("TEST_VAR=test_value\n"); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+	
+	// This should work
+	err = LoadEnvFile(tmpFile.Name())
+	if err != nil {
+		t.Errorf("Expected no error for valid file, got: %v", err)
 	}
 }

@@ -65,7 +65,9 @@ type Config struct {
 // If a .env file exists, it will be loaded first
 func Load() (*Config, error) {
 	// Try to load .env file if it exists
-	LoadEnvFile(".env")
+	if err := LoadEnvFile(".env"); err != nil {
+		return nil, fmt.Errorf("failed to load .env file: %w", err)
+	}
 	config := &Config{
 		// Server defaults
 		ServerPort: getEnvOrDefault("SERVER_PORT", "8080"),

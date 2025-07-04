@@ -105,10 +105,14 @@ func LoadEmailConfig() (*EmailConfig, error) {
 func LoadEmailConfigWithEnvFile(envFile string) (*EmailConfig, error) {
 	// Load .env file if specified
 	if envFile != "" {
-		LoadEnvFile(envFile)
+		if err := LoadEnvFile(envFile); err != nil {
+			return nil, fmt.Errorf("failed to load env file %s: %w", envFile, err)
+		}
 	} else {
 		// Try to load default .env file
-		LoadEnvFile(".env")
+		if err := LoadEnvFile(".env"); err != nil {
+			return nil, fmt.Errorf("failed to load .env file: %w", err)
+		}
 	}
 	config := &EmailConfig{
 		Gmail: GmailConfig{

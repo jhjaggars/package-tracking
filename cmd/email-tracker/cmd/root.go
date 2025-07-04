@@ -43,7 +43,6 @@ const (
 var (
 	configFile string
 	dryRun     bool
-	cfg        *config.EmailConfig
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -133,8 +132,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "only extract tracking numbers, don't create shipments")
 }
 
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
+// loadConfiguration loads configuration from files and environment variables
+func loadConfiguration() (*config.EmailConfig, error) {
+	var cfg *config.EmailConfig
 	var err error
 	
 	// Load configuration with optional .env file
@@ -145,8 +145,7 @@ func initConfig() {
 	}
 	
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 	
 	// Override with CLI flags
@@ -156,10 +155,23 @@ func initConfig() {
 	
 	// Set configuration defaults
 	cfg.SetDefaults()
+	
+	return cfg, nil
+}
+
+// initConfig is called by cobra during initialization
+func initConfig() {
+	// Configuration loading is now done in runEmailTracker
+	// This function is kept for cobra initialization compatibility
 }
 
 // runEmailTracker is the main execution function for the email tracker
 func runEmailTracker(cmd *cobra.Command, args []string) error {
+	// Load configuration
+	cfg, err := loadConfiguration()
+	if err != nil {
+		return fmt.Errorf("configuration error: %w", err)
+	}
 	// Initialize structured logger
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
