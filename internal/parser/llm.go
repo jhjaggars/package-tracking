@@ -116,40 +116,16 @@ func (l *LocalLLMExtractor) IsEnabled() bool {
 	return l.config.Enabled
 }
 
-// buildPrompt creates a prompt for tracking number extraction with merchant and description
+
+// buildPrompt creates a prompt for tracking number extraction
 func (l *LocalLLMExtractor) buildPrompt(content *email.EmailContent) string {
-	prompt := fmt.Sprintf(`Extract shipping tracking numbers, product descriptions, and merchant information from this email. Return ONLY a JSON response.
+	prompt := fmt.Sprintf(`Extract shipping tracking numbers from this email. Return ONLY a JSON response.
+
 
 Email From: %s
 Subject: %s
 Content: %s
 
-EXAMPLES:
-Email: "Your Apple iPhone 15 Pro 256GB Space Black has shipped from Amazon. Tracking: 1Z999AA1234567890"
-Output: {
-  "tracking_numbers": [
-    {
-      "number": "1Z999AA1234567890",
-      "carrier": "ups",
-      "confidence": 0.95,
-      "description": "Apple iPhone 15 Pro 256GB Space Black",
-      "merchant": "Amazon"
-    }
-  ]
-}
-
-Email: "Order #12345 from Best Buy has shipped. Your Samsung Galaxy S24 Ultra tracking number is 9400123456789012345"
-Output: {
-  "tracking_numbers": [
-    {
-      "number": "9400123456789012345",
-      "carrier": "usps",
-      "confidence": 0.90,
-      "description": "Samsung Galaxy S24 Ultra",
-      "merchant": "Best Buy"
-    }
-  ]
-}
 
 Find tracking numbers for these carriers:
 - UPS: Format like 1Z999AA1234567890 (starts with 1Z, 18 characters)  
@@ -157,10 +133,6 @@ Find tracking numbers for these carriers:
 - FedEx: 12 digits or 15 digits starting with 96
 - DHL: 10-11 digits
 
-Extract:
-1. Tracking numbers (highest priority)
-2. Product descriptions (what was shipped)
-3. Merchant/retailer information (who sent it)
 
 Return JSON format:
 {
@@ -168,9 +140,7 @@ Return JSON format:
     {
       "number": "tracking_number_here",
       "carrier": "ups|usps|fedex|dhl",
-      "confidence": 0.95,
-      "description": "product description here",
-      "merchant": "merchant name here"
+      "confidence": 0.95
     }
   ]
 }
@@ -254,11 +224,9 @@ func (l *LocalLLMExtractor) parseResponse(response string) ([]email.TrackingInfo
 	// Parse JSON response
 	var parsed struct {
 		TrackingNumbers []struct {
-			Number      string  `json:"number"`
-			Carrier     string  `json:"carrier"`
-			Confidence  float64 `json:"confidence"`
-			Description string  `json:"description"`
-			Merchant    string  `json:"merchant"`
+			Number     string  `json:"number"`
+			Carrier    string  `json:"carrier"`
+			Confidence float64 `json:"confidence"`
 		} `json:"tracking_numbers"`
 	}
 
@@ -271,12 +239,10 @@ func (l *LocalLLMExtractor) parseResponse(response string) ([]email.TrackingInfo
 	for _, item := range parsed.TrackingNumbers {
 		if item.Number != "" && item.Carrier != "" {
 			results = append(results, email.TrackingInfo{
-				Number:      item.Number,
-				Carrier:     strings.ToLower(item.Carrier),
-				Description: item.Description,
-				Merchant:    item.Merchant,
-				Confidence:  item.Confidence,
-				Source:      "llm",
+				Number:     item.Number,
+				Carrier:    strings.ToLower(item.Carrier),
+				Confidence: item.Confidence,
+				Source:     "llm",
 			})
 		}
 	}

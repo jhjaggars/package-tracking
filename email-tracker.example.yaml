@@ -60,6 +60,6 @@ llm:
   endpoint: ""                   # Endpoint for local LLMs
   max_tokens: 1000               # Response length limit
   temperature: 0.1               # Creativity vs consistency (0.0-1.0)
-  timeout: "30s"                 # Request timeout
+  timeout: "120s"                # Request timeout (increase for Ollama model loading)
   retry_count: 2                 # Number of retries for failed requests
   enabled: false                 # Enable/disable LLM parsing

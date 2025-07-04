@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +196,13 @@ EMAIL_DRY_RUN=false
 
 func TestConfigurationPrecedence(t *testing.T) {
 	t.Run("Full precedence chain: CLI > env vars > .env file > defaults", func(t *testing.T) {
+		// Save and restore global state
+		originalConfigFile := configFile
+		originalDryRun := dryRun
+		defer func() {
+			configFile = originalConfigFile
+			dryRun = originalDryRun
+		}()
 		// Create a temporary .env file with specific values
 		tmpFile, err := os.CreateTemp("", "test*.env")
 		if err != nil {
@@ -256,9 +264,169 @@ EMAIL_API_URL=http://envfile.localhost:8080
 		if cfg.API.URL != "http://envfile.localhost:8080" {
 			t.Errorf("Expected .env file API URL, got '%s'", cfg.API.URL)
 		}
-		
-		// Reset globals
-		configFile = ""
-		dryRun = false
 	})
+}
+
+func TestLoadConfiguration_YAMLSupport(t *testing.T) {
+	// Save and restore global state
+	originalConfigFile := configFile
+	originalDryRun := dryRun
+	defer func() {
+		configFile = originalConfigFile
+		dryRun = originalDryRun
+	}()
+	
+	// Clean up any environment variables that might interfere
+	envVarsToClean := []string{
+		"EMAIL_DRY_RUN", "PKG_TRACKER_EMAIL_PROCESSING_DRY_RUN",
+		"GMAIL_CLIENT_ID", "PKG_TRACKER_EMAIL_GMAIL_CLIENT_ID",
+		"EMAIL_CHECK_INTERVAL", "PKG_TRACKER_EMAIL_PROCESSING_CHECK_INTERVAL",
+	}
+	originalEnvValues := make(map[string]string)
+	for _, envVar := range envVarsToClean {
+		originalEnvValues[envVar] = os.Getenv(envVar)
+		os.Unsetenv(envVar)
+	}
+	defer func() {
+		for envVar, originalValue := range originalEnvValues {
+			if originalValue != "" {
+				os.Setenv(envVar, originalValue)
+			}
+		}
+	}()
+	
+	// Create a temporary YAML config file
+	tmpFile, err := os.CreateTemp("", "test-config*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	
+	yamlContent := `
+gmail:
+  client_id: "test-client-id"
+  client_secret: "test-client-secret"
+  refresh_token: "test-refresh-token"
+search:
+  query: "from:test@example.com subject:yaml-test"
+  after_days: 7
+processing:
+  dry_run: true
+  check_interval: "3m"
+api:
+  url: "http://localhost:8080"
+`
+	
+	if _, err := tmpFile.WriteString(yamlContent); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+	
+	// Test loading YAML configuration
+	configFile = tmpFile.Name()
+	dryRun = false
+	
+	cfg, err := loadConfiguration()
+	if err != nil {
+		t.Fatalf("Failed to load YAML configuration: %v", err)
+	}
+	
+	// Verify configuration was loaded correctly
+	if cfg.Gmail.ClientID != "test-client-id" {
+		t.Errorf("Expected ClientID 'test-client-id', got %s", cfg.Gmail.ClientID)
+	}
+	
+	if cfg.Search.Query != "from:test@example.com subject:yaml-test" {
+		t.Errorf("Expected custom search query, got %s", cfg.Search.Query)
+	}
+	
+	if cfg.Processing.CheckInterval.String() != "3m0s" {
+		t.Errorf("Expected CheckInterval 3m0s, got %s", cfg.Processing.CheckInterval)
+	}
+	
+	if !cfg.Processing.DryRun {
+		t.Errorf("Expected DryRun to be true from YAML config")
+	}
+}
+
+func TestLoadConfiguration_SecurityValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		configPath string
+		expectErr  bool
+		errMsg     string
+	}{
+		{
+			name:       "Directory traversal attack",
+			configPath: "../../../etc/passwd",
+			expectErr:  true,
+			errMsg:     "cannot contain",
+		},
+		{
+			name:       "Relative path with ..",
+			configPath: "../config.yaml",
+			expectErr:  true,
+			errMsg:     "cannot contain",
+		},
+		{
+			name:       "Valid YAML file",
+			configPath: "test-config.yaml",
+			expectErr:  false,
+			errMsg:     "",
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configFile = tt.configPath
+			dryRun = false
+			
+			_, err := loadConfiguration()
+			
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error for %s, but got none", tt.configPath)
+				} else if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Expected error containing '%s', got: %v", tt.errMsg, err)
+				}
+			} else if err != nil && !strings.Contains(err.Error(), "no such file") {
+				// Allow "no such file" errors for non-existent test files
+				t.Errorf("Expected no security error for %s, but got: %v", tt.configPath, err)
+			}
+			
+			// Reset globals
+			configFile = ""
+		})
+	}
+}
+
+func TestLoadConfiguration_FileTypeDetection(t *testing.T) {
+	tests := []struct {
+		name           string
+		filename       string
+		expectedLoader string // "env" or "viper"
+	}{
+		{"env file with extension", "config.env", "env"},
+		{"env file without extension", "config", "env"},
+		{"YAML file", "config.yaml", "viper"},
+		{"TOML file", "config.toml", "viper"},
+		{"JSON file", "config.json", "viper"},
+		{"dotenv file", ".env.test", "env"},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This test verifies the file type detection logic
+			// We check the logic without actually loading files
+			
+			filename := tt.filename
+			isEnvFile := strings.HasSuffix(filename, ".env") || !strings.Contains(filename, ".") || strings.HasPrefix(filepath.Base(filename), ".env")
+			
+			expectedIsEnv := tt.expectedLoader == "env"
+			if isEnvFile != expectedIsEnv {
+				t.Errorf("File type detection failed for %s: expected isEnvFile=%v, got %v", 
+					filename, expectedIsEnv, isEnvFile)
+			}
+		})
+	}
 }

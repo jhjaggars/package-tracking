@@ -265,6 +265,17 @@ echo "EMAIL_DRY_RUN=false" > .env.test
 - `EMAIL_STATE_DB_PATH` - SQLite database for tracking processed emails (default: ./email-state.db)
 - `EMAIL_API_URL` - Package tracking API endpoint (default: http://localhost:8080)
 
+**LLM Configuration for Enhanced Extraction:**
+- `LLM_ENABLED` - Enable LLM-enhanced tracking number extraction (default: false)
+- `LLM_PROVIDER` - LLM provider: "openai", "anthropic", "ollama", or "disabled" (default: disabled)
+- `LLM_MODEL` - Model name (e.g., "llama3.2", "gpt-4", "claude-3-sonnet")
+- `LLM_ENDPOINT` - API endpoint for local LLMs like Ollama (e.g., "http://localhost:11434")
+- `LLM_API_KEY` - API key for cloud providers (OpenAI, Anthropic)
+- `LLM_TIMEOUT` - Request timeout duration (default: 120s, increase for slow Ollama models: "300s")
+- `LLM_MAX_TOKENS` - Maximum response tokens (default: 1000)
+- `LLM_TEMPERATURE` - Creativity vs consistency 0.0-1.0 (default: 0.1)
+- `LLM_RETRY_COUNT` - Number of retries for failed requests (default: 2)
+
 **Email Tracker Structure:**
 - Uses Cobra CLI framework with Fang integration for enhanced error handling
 - Loads configuration from .env files with proper precedence
