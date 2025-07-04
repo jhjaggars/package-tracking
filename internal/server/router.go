@@ -118,13 +118,16 @@ func (r *Router) findRoute(method, path string) (*Route, map[string]string) {
 func patternToRegex(pattern string) (*regexp.Regexp, []string) {
 	var params []string
 	
-	// Find parameter placeholders like {id} BEFORE escaping
-	paramRegex := regexp.MustCompile(`{([^}]+)}`)
+	// Escape special regex characters first, BEFORE replacing parameters
+	regexPattern := regexp.QuoteMeta(pattern)
 	
-	// Replace each {param} with a capturing group
-	regexPattern := paramRegex.ReplaceAllStringFunc(pattern, func(match string) string {
-		// Extract parameter name (remove { and })
-		paramName := strings.Trim(match, "{}")
+	// Find parameter placeholders like \{id\} (escaped)
+	paramRegex := regexp.MustCompile(`\\\{([^}]+)\\\}`)
+	
+	// Replace each escaped \{param\} with a capturing group
+	regexPattern = paramRegex.ReplaceAllStringFunc(regexPattern, func(match string) string {
+		// Extract parameter name (remove \{ and \})
+		paramName := strings.TrimPrefix(strings.TrimSuffix(match, "\\}"), "\\{")
 		// Process parameter
 		params = append(params, paramName)
 		
@@ -136,14 +139,6 @@ func patternToRegex(pattern string) (*regexp.Regexp, []string) {
 		// Use normal parameter pattern
 		return `([^/]+)` // Match any characters except slash
 	})
-	
-	// Now escape special regex characters in the resulting pattern
-	regexPattern = regexp.QuoteMeta(regexPattern)
-	
-	// Unescape our capturing groups
-	regexPattern = strings.ReplaceAll(regexPattern, `\(\[\^\\/\]\+\)`, `([^/]+)`)
-	regexPattern = strings.ReplaceAll(regexPattern, `\(\.\*\)`, `(.*)`)
-	regexPattern = strings.ReplaceAll(regexPattern, `\(\[\^\/\]\+\)`, `([^/]+)`)
 	
 	// Anchor the pattern to match the entire path
 	regexPattern = "^" + regexPattern + "$"

@@ -70,7 +70,12 @@ func setupTestDB(t *testing.T) *database.DB {
 		expected_delivery DATETIME,
 		is_delivered BOOLEAN DEFAULT FALSE,
 		last_manual_refresh DATETIME,
-		manual_refresh_count INTEGER DEFAULT 0
+		manual_refresh_count INTEGER DEFAULT 0,
+		last_auto_refresh DATETIME,
+		auto_refresh_count INTEGER DEFAULT 0,
+		auto_refresh_enabled BOOLEAN DEFAULT TRUE,
+		auto_refresh_error TEXT,
+		auto_refresh_fail_count INTEGER DEFAULT 0
 	);
 
 	CREATE TABLE tracking_events (

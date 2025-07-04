@@ -11,6 +11,8 @@ import (
 
 	"package-tracking/internal/database"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -33,7 +35,14 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		expected_delivery DATETIME,
-		is_delivered BOOLEAN DEFAULT FALSE
+		is_delivered BOOLEAN DEFAULT FALSE,
+		last_manual_refresh DATETIME,
+		manual_refresh_count INTEGER DEFAULT 0,
+		last_auto_refresh DATETIME,
+		auto_refresh_count INTEGER DEFAULT 0,
+		auto_refresh_enabled BOOLEAN DEFAULT TRUE,
+		auto_refresh_error TEXT,
+		auto_refresh_fail_count INTEGER DEFAULT 0
 	);
 
 	CREATE TABLE tracking_events (
@@ -47,6 +56,14 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
 	);
 
+	CREATE TABLE refresh_cache (
+		shipment_id INTEGER PRIMARY KEY,
+		response_data TEXT NOT NULL,
+		cached_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		expires_at DATETIME NOT NULL,
+		FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
+	);
+
 	CREATE TABLE carriers (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
@@ -57,7 +74,9 @@ func setupTestServer(t *testing.T) *httptest.Server {
 
 	CREATE INDEX idx_shipments_status ON shipments(status);
 	CREATE INDEX idx_shipments_carrier ON shipments(carrier);
+	CREATE INDEX idx_shipments_carrier_delivered ON shipments(carrier, is_delivered);
 	CREATE INDEX idx_tracking_events_shipment ON tracking_events(shipment_id);
+	CREATE INDEX idx_tracking_events_dedup ON tracking_events(shipment_id, timestamp, description);
 	`
 
 	if _, err := sqlDB.Exec(schema); err != nil {
@@ -93,20 +112,21 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		}
 	}
 
-	// Create router and register routes
-	router := NewRouter()
-	handlerWrappers := NewHandlerWrappers(db)
-	handlerWrappers.RegisterRoutes(router)
+	// Create chi router like production
+	r := chi.NewRouter()
 
-	// Create server with middleware
-	handler := Chain(
-		router,
-		LoggingMiddleware,
-		RecoveryMiddleware,
-		CORSMiddleware,
-		ContentTypeMiddleware,
-		SecurityMiddleware,
-	)
+	// Add middleware like production
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(CORSMiddleware)
+	r.Use(ContentTypeMiddleware)
+	r.Use(SecurityMiddleware)
+
+	// Create handlers
+	handlerWrappers := NewHandlerWrappers(db)
+	handlerWrappers.RegisterChiRoutes(r)
+
+	handler := r
 
 	return httptest.NewServer(handler)
 }
