@@ -220,13 +220,42 @@ The system includes automated email processing for Gmail accounts to extract tra
 go build -o bin/email-tracker cmd/email-tracker/main.go
 ./bin/email-tracker
 
-# Example with configuration
+# With custom .env configuration file
+echo "GMAIL_CLIENT_ID=your-client-id" > .env.production
+echo "GMAIL_CLIENT_SECRET=your-client-secret" >> .env.production
+echo "GMAIL_REFRESH_TOKEN=your-refresh-token" >> .env.production
+./bin/email-tracker --config=.env.production
+
+# Dry run mode for testing
+./bin/email-tracker --dry-run
+
+# Using environment variables (backward compatible)
 export GMAIL_CLIENT_ID="your-client-id"
 export GMAIL_CLIENT_SECRET="your-client-secret"
 export GMAIL_REFRESH_TOKEN="your-refresh-token"
 export EMAIL_API_URL="http://localhost:8080"
 ./bin/email-tracker
+
+# Override .env file settings with CLI flags
+echo "EMAIL_DRY_RUN=false" > .env.test
+./bin/email-tracker --config=.env.test --dry-run  # CLI flag takes precedence
+
+# View help and version information
+./bin/email-tracker --help
+./bin/email-tracker --version
 ```
+
+**CLI Flags:**
+- `--config` - Specify alternative .env file location (e.g., --config=.env.test)
+- `--dry-run` - Override EMAIL_DRY_RUN environment variable
+- `--version` - Display version information
+- `--help` - Display comprehensive help with configuration details
+
+**Configuration Precedence (highest to lowest):**
+1. CLI flags (highest priority)
+2. Environment variables
+3. .env file values
+4. Default values (lowest priority)
 
 **Key Environment Variables:**
 - `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` - Gmail OAuth2 credentials
@@ -235,6 +264,13 @@ export EMAIL_API_URL="http://localhost:8080"
 - `EMAIL_DRY_RUN` - Extract tracking numbers without creating shipments (default: false)
 - `EMAIL_STATE_DB_PATH` - SQLite database for tracking processed emails (default: ./email-state.db)
 - `EMAIL_API_URL` - Package tracking API endpoint (default: http://localhost:8080)
+
+**Email Tracker Structure:**
+- Uses Cobra CLI framework with Fang integration for enhanced error handling
+- Loads configuration from .env files with proper precedence
+- Supports CLI-level overrides for testing and flexibility
+- Maintains backward compatibility with existing environment variables
+- Follows the same patterns as the main CLI application
 
 **Processing Workflow:**
 1. Searches Gmail using configurable query patterns

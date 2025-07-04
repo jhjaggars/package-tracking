@@ -97,6 +97,19 @@ type LLMConfig struct {
 
 // LoadEmailConfig loads email configuration from environment variables
 func LoadEmailConfig() (*EmailConfig, error) {
+	return LoadEmailConfigWithEnvFile("")
+}
+
+// LoadEmailConfigWithEnvFile loads email configuration from environment variables
+// and optionally loads a .env file first
+func LoadEmailConfigWithEnvFile(envFile string) (*EmailConfig, error) {
+	// Load .env file if specified
+	if envFile != "" {
+		LoadEnvFile(envFile)
+	} else {
+		// Try to load default .env file
+		LoadEnvFile(".env")
+	}
 	config := &EmailConfig{
 		Gmail: GmailConfig{
 			ClientID:       getEnvOrDefault("GMAIL_CLIENT_ID", ""),
