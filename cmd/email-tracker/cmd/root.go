@@ -218,7 +218,12 @@ func runEmailTracker(cmd *cobra.Command, args []string) error {
 		DebugMode:           cfg.Processing.DebugMode,
 	}
 	
-	extractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig)
+	// Initialize LLM configuration (disabled by default for email tracker)
+	llmConfig := &parser.LLMConfig{
+		Enabled: false, // Can be enabled if LLM support is needed for email tracker
+	}
+	
+	extractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig, llmConfig)
 	logger.Info("Tracking extractor initialized")
 	
 	// Initialize state manager
