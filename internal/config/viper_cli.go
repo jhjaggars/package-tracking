@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -98,7 +100,8 @@ func loadCLIConfigFile(v *viper.Viper) error {
 	// Try to read config file
 	if err := v.ReadInConfig(); err != nil {
 		// Config file is optional, only return error if it's not a "not found" error
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
 			return err
 		}
 	}
@@ -149,7 +152,7 @@ func validateCLIConfig(config *cli.Config) error {
 
 	// Validate URL format - basic check for URL structure
 	if config.ServerURL != "" {
-		if len(config.ServerURL) < 7 || (!hasPrefix(config.ServerURL, "http://") && !hasPrefix(config.ServerURL, "https://")) {
+		if len(config.ServerURL) < 7 || (!strings.HasPrefix(config.ServerURL, "http://") && !strings.HasPrefix(config.ServerURL, "https://")) {
 			return fmt.Errorf("invalid server URL format")
 		}
 	}
@@ -167,9 +170,12 @@ func validateCLIConfig(config *cli.Config) error {
 		return fmt.Errorf("invalid format: %s (must be one of: table, json)", config.Format)
 	}
 
-	// Validate timeout
+	// Validate timeout with reasonable ranges
 	if config.RequestTimeout <= 0 {
 		return fmt.Errorf("request timeout must be positive")
+	}
+	if config.RequestTimeout > 10*time.Minute {
+		return fmt.Errorf("request timeout too large (max 10 minutes)")
 	}
 
 	return nil
@@ -188,7 +194,3 @@ func LoadCLIConfigWithFile(configFile string) (*cli.Config, error) {
 	return LoadCLIConfigWithViper(v)
 }
 
-// hasPrefix checks if string s has the given prefix
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
-}

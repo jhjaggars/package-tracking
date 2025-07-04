@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -222,7 +223,8 @@ func loadEmailConfigFile(v *viper.Viper) error {
 	// Try to read config file
 	if err := v.ReadInConfig(); err != nil {
 		// Config file is optional, only return error if it's not a "not found" error
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
 			return err
 		}
 	}
