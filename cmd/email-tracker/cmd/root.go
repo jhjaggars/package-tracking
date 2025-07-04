@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -141,17 +142,13 @@ func loadConfiguration() (*config.EmailConfig, error) {
 	// Load configuration with Viper (supports YAML, TOML, JSON, .env)
 	if configFile != "" {
 		// Check if it's a .env file or a structured config file
-		if strings.HasSuffix(configFile, ".env") || !strings.Contains(configFile, ".") {
+		if strings.HasSuffix(configFile, ".env") || !strings.Contains(configFile, ".") || strings.HasPrefix(filepath.Base(configFile), ".env") {
 			// Use legacy .env loader for .env files (includes security validation)
 			cfg, err = config.LoadEmailConfigWithEnvFile(configFile)
 		} else {
-			// For structured config files, first validate path security using .env validation
-			// This reuses the existing directory traversal protection logic
-			tempErr := config.LoadEnvFile(configFile)
-			if tempErr != nil && (strings.Contains(tempErr.Error(), "cannot contain") || 
-				strings.Contains(tempErr.Error(), "cannot access")) {
-				// Return security-related errors immediately
-				return nil, fmt.Errorf("failed to load configuration: %w", tempErr)
+			// Validate config file path for security (prevent directory traversal)
+			if err := config.ValidateConfigFilePath(configFile); err != nil {
+				return nil, fmt.Errorf("failed to load configuration: %w", err)
 			}
 			// Use Viper loader for YAML/TOML/JSON files
 			cfg, err = config.LoadEmailConfigViperWithFile(configFile)

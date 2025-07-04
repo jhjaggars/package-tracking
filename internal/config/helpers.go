@@ -101,6 +101,51 @@ func validateEnvFilePath(filename string) error {
 	return nil
 }
 
+// ValidateConfigFilePath validates that a config file path is safe and prevents directory traversal
+// This is a public wrapper around validateEnvFilePath that works for any config file type
+func ValidateConfigFilePath(filename string) error {
+	if filename == "" {
+		return nil
+	}
+	
+	// Clean the path and check for directory traversal attempts
+	cleanPath := filepath.Clean(filename)
+	
+	// Check for absolute paths outside of current working directory
+	if filepath.IsAbs(cleanPath) {
+		// Allow temporary directories (common for testing)
+		tmpDir := os.TempDir()
+		if strings.HasPrefix(cleanPath, filepath.Clean(tmpDir)) {
+			// Allow files in temp directory
+		} else {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("cannot determine current directory: %w", err)
+			}
+			
+			// Ensure absolute path is within or below current directory
+			relPath, err := filepath.Rel(cwd, cleanPath)
+			if err != nil {
+				return fmt.Errorf("invalid file path: %w", err)
+			}
+			
+			if strings.HasPrefix(relPath, "..") {
+				return fmt.Errorf("file path cannot access parent directories: %s", filename)
+			}
+		}
+	} else {
+		// For relative paths, ensure they don't traverse up
+		if strings.Contains(cleanPath, "..") {
+			return fmt.Errorf("file path cannot contain '..': %s", filename)
+		}
+	}
+	
+	// For config files, we allow various extensions (.yaml, .toml, .json, .env, etc.)
+	// No need to restrict to .env only like validateEnvFilePath does
+	
+	return nil
+}
+
 // loadEnvFile loads environment variables from a .env file if it exists
 func loadEnvFile(filename string) error {
 	// Validate file path for security
