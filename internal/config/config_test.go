@@ -132,6 +132,7 @@ func TestLoad(t *testing.T) {
 		
 		os.Setenv("USPS_API_KEY", "usps123")
 		os.Setenv("UPS_API_KEY", "ups456")
+		os.Setenv("DHL_API_KEY", "dhl789")
 		os.Setenv("DISABLE_ADMIN_AUTH", "true")
 
 		config, err := Load()
@@ -145,6 +146,10 @@ func TestLoad(t *testing.T) {
 
 		if config.UPSAPIKey != "ups456" {
 			t.Errorf("Expected UPS API key ups456, got %s", config.UPSAPIKey)
+		}
+
+		if config.DHLAPIKey != "dhl789" {
+			t.Errorf("Expected DHL API key dhl789, got %s", config.DHLAPIKey)
 		}
 	})
 
@@ -217,6 +222,55 @@ func TestLoad(t *testing.T) {
 		// Should not require API key when auth is disabled
 		if config.AdminAPIKey != "" {
 			t.Errorf("Expected empty API key when auth disabled, got %s", config.AdminAPIKey)
+		}
+	})
+
+	t.Run("DHLAutoUpdateConfig", func(t *testing.T) {
+		// Clear any invalid env vars from previous tests
+		for _, key := range envVars {
+			os.Unsetenv(key)
+		}
+		
+		os.Setenv("DHL_AUTO_UPDATE_ENABLED", "false")
+		os.Setenv("DHL_AUTO_UPDATE_CUTOFF_DAYS", "45")
+		os.Setenv("DISABLE_ADMIN_AUTH", "true")
+
+		config, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if config.DHLAutoUpdateEnabled != false {
+			t.Errorf("Expected DHL auto-update enabled false, got %v", config.DHLAutoUpdateEnabled)
+		}
+
+		if config.DHLAutoUpdateCutoffDays != 45 {
+			t.Errorf("Expected DHL auto-update cutoff days 45, got %d", config.DHLAutoUpdateCutoffDays)
+		}
+	})
+
+	t.Run("DHLAutoUpdateDefaults", func(t *testing.T) {
+		// Clear any invalid env vars from previous tests
+		for _, key := range envVars {
+			os.Unsetenv(key)
+		}
+		// Clear DHL-specific env vars from previous test
+		os.Unsetenv("DHL_AUTO_UPDATE_ENABLED")
+		os.Unsetenv("DHL_AUTO_UPDATE_CUTOFF_DAYS")
+		
+		os.Setenv("DISABLE_ADMIN_AUTH", "true")
+
+		config, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if config.DHLAutoUpdateEnabled != true {
+			t.Errorf("Expected DHL auto-update enabled true (default), got %v", config.DHLAutoUpdateEnabled)
+		}
+
+		if config.DHLAutoUpdateCutoffDays != 0 {
+			t.Errorf("Expected DHL auto-update cutoff days 0 (default), got %d", config.DHLAutoUpdateCutoffDays)
 		}
 	})
 }
@@ -336,6 +390,28 @@ func TestValidate(t *testing.T) {
 
 		if err := config.validate(); err != nil {
 			t.Errorf("Expected no error when admin auth is disabled, got: %v", err)
+		}
+	})
+
+	t.Run("NegativeDHLCutoffDays", func(t *testing.T) {
+		config := &Config{
+			ServerPort:                  "8080",
+			ServerHost:                  "localhost",
+			DBPath:                      "./test.db",
+			UpdateInterval:              time.Hour,
+			LogLevel:                    "info",
+			AutoUpdateBatchSize:         5,
+			AutoUpdateMaxRetries:        3,
+			AutoUpdateFailureThreshold:  10,
+			CacheTTL:                    5 * time.Minute,
+			AutoUpdateBatchTimeout:      30 * time.Second,
+			AutoUpdateIndividualTimeout: 10 * time.Second,
+			DHLAutoUpdateCutoffDays:     -1, // Invalid
+			DisableAdminAuth:            true,
+		}
+
+		if err := config.validate(); err == nil {
+			t.Error("Expected error for negative DHL auto-update cutoff days")
 		}
 	})
 }

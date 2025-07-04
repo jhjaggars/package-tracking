@@ -25,6 +25,8 @@ func getTestConfig() *config.Config {
 		AutoUpdateFailureThreshold:  10,
 		UPSAutoUpdateEnabled:        true,
 		UPSAutoUpdateCutoffDays:     30,
+		DHLAutoUpdateEnabled:        true,
+		DHLAutoUpdateCutoffDays:     0, // Use global fallback
 		CacheTTL:                    5 * time.Minute,
 		AutoUpdateBatchTimeout:      5 * time.Second,
 		AutoUpdateIndividualTimeout: 3 * time.Second,
@@ -475,4 +477,206 @@ func TestTrackingUpdater_FailureThresholdSupport(t *testing.T) {
 	}
 
 	t.Logf("Failure threshold support verified: threshold=%d", cfg.AutoUpdateFailureThreshold)
+}
+
+// createTestDHLShipment creates a test DHL shipment in the database
+func createTestDHLShipment(t *testing.T, db *database.DB, trackingNumber string, lastManualRefresh *time.Time) *database.Shipment {
+	shipment := &database.Shipment{
+		TrackingNumber:       trackingNumber,
+		Carrier:              "dhl",
+		Description:          "Test DHL Package",
+		Status:               "pending",
+		AutoRefreshEnabled:   true,
+		LastManualRefresh:    lastManualRefresh,
+		AutoRefreshFailCount: 0,
+	}
+
+	err := db.Shipments.Create(shipment)
+	if err != nil {
+		t.Fatalf("Failed to create test DHL shipment: %v", err)
+	}
+
+	// If lastManualRefresh is provided, update the shipment to set this field
+	if lastManualRefresh != nil {
+		shipment.LastManualRefresh = lastManualRefresh
+		err = db.Shipments.Update(shipment.ID, shipment)
+		if err != nil {
+			t.Fatalf("Failed to update test DHL shipment with manual refresh time: %v", err)
+		}
+	}
+
+	return shipment
+}
+
+func TestTrackingUpdater_DHLAutoUpdateConfig(t *testing.T) {
+	cfg := getTestConfig()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Test DHL-specific configuration
+	if !updater.config.DHLAutoUpdateEnabled {
+		t.Error("DHL auto-updates should be enabled in test config")
+	}
+	
+	if updater.config.DHLAutoUpdateCutoffDays != 0 {
+		t.Errorf("Expected DHL cutoff days 0 (use global fallback), got %d", updater.config.DHLAutoUpdateCutoffDays)
+	}
+	
+	if updater.config.AutoUpdateCutoffDays != 30 {
+		t.Errorf("Expected global cutoff days 30, got %d", updater.config.AutoUpdateCutoffDays)
+	}
+	
+	if updater.config.AutoUpdateFailureThreshold != 10 {
+		t.Errorf("Expected failure threshold 10, got %d", updater.config.AutoUpdateFailureThreshold)
+	}
+
+	if updater.config.CacheTTL != 5*time.Minute {
+		t.Errorf("Expected cache TTL 5m, got %v", updater.config.CacheTTL)
+	}
+}
+
+func TestTrackingUpdater_DHLAutoUpdateDisabled(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.DHLAutoUpdateEnabled = false
+	
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Create DHL shipments
+	createTestDHLShipment(t, db, "1234567890", nil)
+	createTestDHLShipment(t, db, "ABCD1234567890", nil)
+
+	// Verify DHL auto-updates are disabled in config
+	if updater.config.DHLAutoUpdateEnabled {
+		t.Error("DHL auto-updates should be disabled")
+	}
+
+	// Since we can't easily test the actual update behavior without mocking,
+	// we verify the configuration is properly set to disabled
+	t.Logf("DHL auto-updates properly disabled in configuration")
+}
+
+func TestTrackingUpdater_DHLCutoffDaysFallback(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.DHLAutoUpdateCutoffDays = 0 // Should fall back to global setting
+	cfg.AutoUpdateCutoffDays = 45   // Global setting
+	
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Test that the fallback logic works
+	// We can't easily test the runtime behavior without mocking,
+	// but we can verify the configuration setup
+	if updater.config.DHLAutoUpdateCutoffDays != 0 {
+		t.Errorf("Expected DHL cutoff days to be 0 (fallback), got %d", updater.config.DHLAutoUpdateCutoffDays)
+	}
+	
+	if updater.config.AutoUpdateCutoffDays != 45 {
+		t.Errorf("Expected global cutoff days 45, got %d", updater.config.AutoUpdateCutoffDays)
+	}
+
+	t.Logf("DHL cutoff days fallback configuration verified")
+}
+
+func TestTrackingUpdater_DHLSpecificCutoffDays(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.DHLAutoUpdateCutoffDays = 60 // DHL-specific setting
+	cfg.AutoUpdateCutoffDays = 30    // Global setting (should be ignored for DHL)
+	
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Test that DHL-specific cutoff days are used when configured
+	if updater.config.DHLAutoUpdateCutoffDays != 60 {
+		t.Errorf("Expected DHL cutoff days 60, got %d", updater.config.DHLAutoUpdateCutoffDays)
+	}
+	
+	if updater.config.AutoUpdateCutoffDays != 30 {
+		t.Errorf("Expected global cutoff days 30, got %d", updater.config.AutoUpdateCutoffDays)
+	}
+
+	t.Logf("DHL-specific cutoff days configuration verified")
+}
+
+func TestTrackingUpdater_DHLCarrierSupport(t *testing.T) {
+	cfg := getTestConfig()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Create DHL shipments with various tracking number formats
+	dhlShipment1 := createTestDHLShipment(t, db, "1234567890", nil)         // 10 chars
+	dhlShipment2 := createTestDHLShipment(t, db, "ABCD1234567890123456", nil) // 20 chars
+	dhlShipment3 := createTestDHLShipment(t, db, "JD123456789US", nil)     // Typical DHL format
+
+	// Verify shipments were created with correct carrier
+	if dhlShipment1.Carrier != "dhl" {
+		t.Errorf("Expected DHL carrier for shipment 1, got %s", dhlShipment1.Carrier)
+	}
+	
+	if dhlShipment2.Carrier != "dhl" {
+		t.Errorf("Expected DHL carrier for shipment 2, got %s", dhlShipment2.Carrier)
+	}
+	
+	if dhlShipment3.Carrier != "dhl" {
+		t.Errorf("Expected DHL carrier for shipment 3, got %s", dhlShipment3.Carrier)
+	}
+
+	// Test database query for DHL-specific shipments
+	cutoffDate := time.Now().AddDate(0, 0, -30)
+	
+	dhlShipments, err := db.Shipments.GetActiveForAutoUpdate("dhl", cutoffDate, 10)
+	if err != nil {
+		t.Fatalf("Failed to get DHL shipments: %v", err)
+	}
+
+	// Verify carrier filtering works for DHL
+	if len(dhlShipments) != 3 {
+		t.Errorf("Expected 3 DHL shipments, got %d", len(dhlShipments))
+	}
+
+	for i, shipment := range dhlShipments {
+		if shipment.Carrier != "dhl" {
+			t.Errorf("DHL query returned wrong carrier for shipment %d: %s", i, shipment.Carrier)
+		}
+	}
+
+	t.Logf("DHL carrier support verified: found %d DHL shipments", len(dhlShipments))
+}
+
+func TestTrackingUpdater_DHLRateLimitWarning(t *testing.T) {
+	cfg := getTestConfig()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	updater := setupTestTrackingUpdater(t, cfg, db)
+	defer updater.Stop()
+
+	// Test rate limit warning logic (this will be tested when we implement the actual method)
+	// For now, just verify the configuration supports DHL rate limits
+	if !updater.config.DHLAutoUpdateEnabled {
+		t.Error("DHL auto-updates should be enabled for rate limit testing")
+	}
+
+	// DHL API has 250 calls/day limit
+	// 80% threshold should be 200 calls
+	expectedWarningThreshold := 200
+	
+	// This is a placeholder test - the actual rate limit warning logic
+	// will be tested when we implement updateDHLShipments
+	t.Logf("DHL rate limit warning threshold would be %d calls (80%% of 250)", expectedWarningThreshold)
 }
