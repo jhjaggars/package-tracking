@@ -135,17 +135,12 @@ func (c *Client) CreateShipment(tracking email.TrackingInfo) error {
 	}
 	
 	// Enhanced description formatting with merchant information
-	if request.Description == "" {
-		request.Description = formatDescriptionWithMerchant(
-			tracking.Description,
-			tracking.Merchant,
-			tracking.SourceEmail.From,
-			tracking.SourceEmail.Subject,
-		)
-	} else if tracking.Merchant != "" && !containsMerchantInfo(request.Description, tracking.Merchant) {
-		// Enhance existing description with merchant info
-		request.Description = fmt.Sprintf("%s from %s", request.Description, tracking.Merchant)
-	}
+	request.Description = formatDescriptionWithMerchant(
+		tracking.Description,
+		tracking.Merchant,
+		tracking.SourceEmail.From,
+		tracking.SourceEmail.Subject,
+	)
 	
 	url := fmt.Sprintf("%s/api/shipments", c.baseURL)
 	

@@ -778,19 +778,3 @@ func TestFormatDescriptionWithMerchant(t *testing.T) {
 	}
 }
 
-// Helper function for formatting descriptions with merchant information
-func formatDescriptionWithMerchant(description, merchant, from, subject string) string {
-	if description != "" && merchant != "" {
-		return fmt.Sprintf("%s from %s", description, merchant)
-	}
-	if description != "" {
-		return description
-	}
-	if merchant != "" {
-		return fmt.Sprintf("Package from %s", merchant)
-	}
-	if subject != "" {
-		return subject
-	}
-	return fmt.Sprintf("Package from %s", from)
-}
