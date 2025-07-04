@@ -79,7 +79,7 @@ func setEmailDefaults(v *viper.Viper) {
 	v.SetDefault("llm.endpoint", "")
 	v.SetDefault("llm.max_tokens", 1000)
 	v.SetDefault("llm.temperature", 0.1)
-	v.SetDefault("llm.timeout", "30s")
+	v.SetDefault("llm.timeout", "120s")
 	v.SetDefault("llm.retry_count", 2)
 	v.SetDefault("llm.enabled", false)
 }

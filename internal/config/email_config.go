@@ -173,7 +173,7 @@ func LoadEmailConfigWithEnvFile(envFile string) (*EmailConfig, error) {
 			Endpoint:    getEnvOrDefault("LLM_ENDPOINT", ""),
 			MaxTokens:   getEnvIntOrDefault("LLM_MAX_TOKENS", 1000),
 			Temperature: getEnvFloatOrDefault("LLM_TEMPERATURE", 0.1),
-			Timeout:     getEnvDurationOrDefault("LLM_TIMEOUT", "30s"),
+			Timeout:     getEnvDurationOrDefault("LLM_TIMEOUT", "120s"),
 			RetryCount:  getEnvIntOrDefault("LLM_RETRY_COUNT", 2),
 			Enabled:     getEnvBoolOrDefault("LLM_ENABLED", false),
 		},
