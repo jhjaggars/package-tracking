@@ -59,9 +59,6 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     exit 0
 fi
 
-echo "📦 Building Go backend..."
-go build -o bin/server cmd/server/main.go
-
 echo "📱 Installing frontend dependencies..."
 cd web
 if [ ! -d "node_modules" ]; then
@@ -84,7 +81,7 @@ tmux new-window -t "$SESSION_NAME:1" -n 'frontend'
 
 # Start backend server in first window
 echo "🔧 Starting backend server on http://localhost:8080"
-tmux send-keys -t "$SESSION_NAME:backend" './bin/server' C-m
+tmux send-keys -t "$SESSION_NAME:backend" 'go run cmd/server/main.go' C-m
 
 # Start frontend server in second window
 echo "🎨 Starting frontend server on http://localhost:5173"
