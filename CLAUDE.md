@@ -280,8 +280,64 @@ echo "EMAIL_DRY_RUN=false" > .env.test
 5. Marks emails as processed to avoid duplicates
 6. Maintains processing statistics and error tracking
 
-### Environment Variables
-Configuration via environment variables with sensible defaults.
+### Configuration System
+
+The system now uses [Viper](https://github.com/spf13/viper) for advanced configuration management with support for multiple formats and better organization.
+
+#### New Configuration Format (Recommended)
+
+The new configuration system uses a `PKG_TRACKER_` prefix for better organization and supports multiple file formats (YAML, TOML, JSON, .env).
+
+**Environment Variables:**
+All configuration can be set via environment variables with the `PKG_TRACKER_` prefix:
+- `PKG_TRACKER_SERVER_HOST`, `PKG_TRACKER_SERVER_PORT`
+- `PKG_TRACKER_DATABASE_PATH`
+- `PKG_TRACKER_LOGGING_LEVEL`
+- `PKG_TRACKER_CARRIERS_USPS_API_KEY`, `PKG_TRACKER_CARRIERS_UPS_CLIENT_ID`, etc.
+
+**Configuration Files:**
+The system automatically searches for configuration files in:
+- Current directory: `./config.{yaml,toml,json}`
+- Config directory: `./config/config.{yaml,toml,json}`
+- Home directory: `~/.package-tracker/config.{yaml,toml,json}`
+
+Example YAML configuration (`config.yaml`):
+```yaml
+server:
+  host: localhost
+  port: 8080
+database:
+  path: ./database.db
+carriers:
+  usps:
+    api_key: "your-key"
+  ups:
+    client_id: "your-client-id"
+    client_secret: "your-client-secret"
+```
+
+**CLI Configuration:**
+CLI now supports YAML configuration at `~/.package-tracker/cli.yaml`:
+```yaml
+server_url: "http://localhost:8080"
+format: "table"
+quiet: false
+```
+
+**Email Tracker Configuration:**
+Email tracker supports configuration files at `./email-tracker.yaml`:
+```yaml
+gmail:
+  client_id: "your-client-id"
+  client_secret: "your-client-secret"
+processing:
+  dry_run: false
+  check_interval: "5m"
+```
+
+#### Legacy Environment Variables (Backward Compatible)
+
+The system maintains backward compatibility with existing environment variables:
 
 The server automatically loads variables from a `.env` file if present. Environment variables take precedence over `.env` file values:
 - `SERVER_PORT` (default: 8080)

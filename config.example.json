@@ -1,0 +1,64 @@
+{
+  "_comment": "Package Tracking Server Configuration (JSON) - Copy this file to config.json and configure as needed",
+  
+  "server": {
+    "host": "localhost",
+    "port": 8080
+  },
+  
+  "database": {
+    "path": "./database.db"
+  },
+  
+  "logging": {
+    "level": "info"
+  },
+  
+  "update": {
+    "interval": "1h",
+    "auto_enabled": true,
+    "cutoff_days": 30,
+    "failure_threshold": 10,
+    "batch_size": 10,
+    "max_retries": 10,
+    "batch_timeout": "60s",
+    "individual_timeout": "30s"
+  },
+  
+  "carriers": {
+    "usps": {
+      "api_key": ""
+    },
+    "ups": {
+      "client_id": "",
+      "client_secret": "",
+      "api_key": "",
+      "auto_update_enabled": true,
+      "auto_update_cutoff_days": 30
+    },
+    "fedex": {
+      "api_key": "",
+      "secret_key": "",
+      "api_url": "https://apis.fedex.com"
+    },
+    "dhl": {
+      "api_key": "",
+      "auto_update_enabled": true,
+      "auto_update_cutoff_days": 0
+    }
+  },
+  
+  "cache": {
+    "ttl": "5m",
+    "disabled": false
+  },
+  
+  "rate_limit": {
+    "disabled": false
+  },
+  
+  "admin": {
+    "api_key": "",
+    "auth_disabled": false
+  }
+}

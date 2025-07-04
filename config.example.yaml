@@ -1,0 +1,66 @@
+# Package Tracking Server Configuration (YAML)
+# Copy this file to config.yaml and configure as needed
+
+# Server Configuration
+server:
+  host: localhost
+  port: 8080
+
+# Database Configuration  
+database:
+  path: ./database.db
+
+# Logging Configuration
+logging:
+  level: info
+
+# Auto-Update Configuration
+update:
+  interval: 1h
+  auto_enabled: true
+  cutoff_days: 30
+  failure_threshold: 10
+  batch_size: 10
+  max_retries: 10
+  batch_timeout: 60s
+  individual_timeout: 30s
+
+# Carrier API Configuration
+carriers:
+  # USPS Configuration
+  usps:
+    api_key: ""  # Optional: your_usps_api_key
+  
+  # UPS Configuration (OAuth 2.0 - recommended)
+  ups:
+    client_id: ""        # your_ups_client_id
+    client_secret: ""    # your_ups_client_secret
+    api_key: ""          # deprecated - use OAuth2 instead
+    auto_update_enabled: true
+    auto_update_cutoff_days: 30
+  
+  # FedEx Configuration (OAuth 2.0)
+  fedex:
+    api_key: ""          # your_fedex_client_id
+    secret_key: ""       # your_fedex_client_secret
+    api_url: "https://apis.fedex.com"  # Use https://apis-sandbox.fedex.com for testing
+  
+  # DHL Configuration
+  dhl:
+    api_key: ""          # your_dhl_api_key
+    auto_update_enabled: true
+    auto_update_cutoff_days: 0  # 0 means use global cutoff_days
+
+# Cache Configuration
+cache:
+  ttl: 5m
+  disabled: false
+
+# Rate Limiting Configuration
+rate_limit:
+  disabled: false
+
+# Admin Authentication Configuration
+admin:
+  api_key: ""           # your_secret_admin_api_key_here
+  auth_disabled: false  # Set to true to disable authentication for development

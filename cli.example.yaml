@@ -1,0 +1,17 @@
+# Package Tracking CLI Configuration (YAML)
+# Copy this file to ~/.package-tracker/cli.yaml or ./cli.yaml and configure as needed
+
+# Server Connection
+server_url: "http://localhost:8080"
+
+# Output Format (table or json)
+format: "table"
+
+# Quiet Mode (minimal output)
+quiet: false
+
+# Disable Color Output
+no_color: false
+
+# Request Timeout (in seconds or duration format like "3m")
+request_timeout: "180s"
