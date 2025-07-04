@@ -1,0 +1,23 @@
+{
+  "id": "dhl-automatic-tracking",
+  "started": "2025-01-03T15:21:00Z",
+  "lastUpdated": "2025-01-03T15:21:00Z",
+  "status": "active",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": [
+    "internal/carriers/dhl.go",
+    "internal/workers/tracking_updater.go",
+    "internal/config/config.go",
+    "internal/database/shipment_store.go"
+  ],
+  "relatedFeatures": [
+    "UPS automatic updates",
+    "USPS automatic updates",
+    "Rate limiting",
+    "Cache system"
+  ]
+}
