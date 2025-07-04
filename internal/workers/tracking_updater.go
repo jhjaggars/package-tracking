@@ -131,6 +131,11 @@ func (u *TrackingUpdater) performUpdates() {
 	if u.config.UPSAutoUpdateEnabled {
 		u.updateUPSShipments()
 	}
+	
+	// Update DHL shipments if enabled
+	if u.config.DHLAutoUpdateEnabled {
+		u.updateDHLShipments()
+	}
 
 	duration := time.Since(startTime)
 	u.logger.Info("Completed automatic tracking updates", "duration", duration)
@@ -189,6 +194,40 @@ func (u *TrackingUpdater) updateUPSShipments() {
 	}
 
 	u.logger.Info("Found UPS shipments for auto-update", "count", len(shipments))
+
+	// Process shipments with unified cache-based rate limiting
+	u.processShipmentsWithCache(shipments)
+}
+
+// updateDHLShipments updates all eligible DHL shipments
+func (u *TrackingUpdater) updateDHLShipments() {
+	// Use DHL-specific cutoff days if configured, otherwise use global setting
+	cutoffDays := u.config.DHLAutoUpdateCutoffDays
+	if cutoffDays == 0 {
+		cutoffDays = u.config.AutoUpdateCutoffDays
+	}
+	
+	cutoffDate := time.Now().AddDate(0, 0, -cutoffDays)
+	
+	u.logger.Debug("Fetching DHL shipments for auto-update",
+		"cutoff_date", cutoffDate,
+		"cutoff_days", cutoffDays)
+
+	shipments, err := u.shipmentStore.GetActiveForAutoUpdate("dhl", cutoffDate, u.config.AutoUpdateFailureThreshold)
+	if err != nil {
+		u.logger.Error("Failed to fetch DHL shipments for auto-update", "error", err)
+		return
+	}
+
+	if len(shipments) == 0 {
+		u.logger.Debug("No DHL shipments found for auto-update")
+		return
+	}
+
+	u.logger.Info("Found DHL shipments for auto-update", "count", len(shipments))
+
+	// Check for rate limit warning (80% of 250 daily limit = 200 calls)
+	u.checkDHLRateLimitWarning(shipments)
 
 	// Process shipments with unified cache-based rate limiting
 	u.processShipmentsWithCache(shipments)
@@ -554,4 +593,57 @@ func (u *TrackingUpdater) handleUpdateError(shipment *database.Shipment, err err
 		"shipment_id", shipment.ID,
 		"tracking_number", shipment.TrackingNumber,
 		"error", err)
+}
+
+const (
+	// DHLRateLimitWarningThreshold is the percentage threshold for rate limit warnings
+	DHLRateLimitWarningThreshold = 80.0
+)
+
+// checkDHLRateLimitWarning checks DHL API rate limits and logs warnings when approaching limits
+func (u *TrackingUpdater) checkDHLRateLimitWarning(shipments []database.Shipment) {
+	// Get DHL client to check rate limits
+	client, _, err := u.carrierFactory.CreateClient("dhl")
+	if err != nil {
+		// If we can't create a DHL client, we're probably using scraping fallback
+		u.logger.Debug("Could not create DHL API client for rate limit check", "error", err)
+		return
+	}
+
+	// Get rate limit information
+	rateLimit := client.GetRateLimit()
+	if rateLimit == nil {
+		u.logger.Debug("No rate limit information available for DHL")
+		return
+	}
+
+	// Calculate usage percentage
+	limit := rateLimit.Limit
+	remaining := rateLimit.Remaining
+	if limit <= 0 {
+		return // Invalid limit
+	}
+
+	used := limit - remaining
+	usagePercent := float64(used) / float64(limit) * 100
+
+	// Log warning if usage is at or above threshold
+	if usagePercent >= DHLRateLimitWarningThreshold {
+		u.logger.Warn("DHL API rate limit approaching",
+			"usage_percent", fmt.Sprintf("%.1f%%", usagePercent),
+			"used", used,
+			"limit", limit,
+			"remaining", remaining,
+			"reset_time", rateLimit.ResetTime,
+			"pending_shipments", len(shipments),
+			"recommendation", "Consider reducing update frequency or using web scraping fallback")
+		
+		// If we're very close to the limit, log additional warning
+		if remaining < len(shipments) {
+			u.logger.Warn("DHL API calls remaining is less than pending shipments",
+				"remaining_calls", remaining,
+				"pending_shipments", len(shipments),
+				"message", "Some shipments may not be updated due to rate limiting")
+		}
+	}
 }

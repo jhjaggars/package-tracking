@@ -18,7 +18,7 @@ go build -o bin/package-tracker cmd/cli/main.go
 # Build the email tracker
 go build -o bin/email-tracker cmd/email-tracker/main.go
 
-# Run the server directly
+# Run the server directly, if you are developing don't use this command, use the tmux dev environment instead
 go run cmd/server/main.go
 
 # Run with custom configuration
@@ -174,27 +174,32 @@ curl -H "Authorization: Bearer your-secret-key-here" \
 - `POST /api/admin/tracking-updater/pause` - Pause automatic updates
 - `POST /api/admin/tracking-updater/resume` - Resume automatic updates
 
-### UPS Automatic Updates
-The system supports automatic tracking updates for UPS shipments alongside existing USPS auto-updates:
+### UPS and DHL Automatic Updates
+The system supports automatic tracking updates for UPS and DHL shipments alongside existing USPS auto-updates:
 
 **Features:**
-- Unified scheduling - UPS and USPS updates run in the same cycle
+- Unified scheduling - UPS, DHL, and USPS updates run in the same cycle
 - OAuth 2.0 authentication support with `UPS_CLIENT_ID` and `UPS_CLIENT_SECRET`
+- DHL API key authentication support with `DHL_API_KEY`
 - Backward compatibility with legacy `UPS_API_KEY` (deprecated)
 - Configurable failure threshold to prevent excessive API calls
 - Per-carrier cutoff day configuration with global fallback
 - Automatic fallback from API to scraping when credentials unavailable
+- DHL rate limit warning at 80% of daily API quota (200 out of 250 calls)
 
 **Behavior:**
-- UPS shipments are queried from database using carrier-specific filters
+- UPS and DHL shipments are queried from database using carrier-specific filters
 - Cache-based rate limiting applies consistently across all carriers
 - Failed updates increment failure count; shipments disabled after threshold reached
 - Cache TTL is configurable via `CACHE_TTL` environment variable
 - Updates respect the same 5-minute rate limiting as manual refreshes
+- DHL API calls are monitored and warnings logged when approaching rate limits
 
 **Configuration:**
 - Use `UPS_AUTO_UPDATE_ENABLED=false` to disable UPS auto-updates
+- Use `DHL_AUTO_UPDATE_ENABLED=false` to disable DHL auto-updates
 - Configure `UPS_AUTO_UPDATE_CUTOFF_DAYS` for UPS-specific cutoff (defaults to global setting)
+- Configure `DHL_AUTO_UPDATE_CUTOFF_DAYS` for DHL-specific cutoff (defaults to global setting)
 - Set `AUTO_UPDATE_FAILURE_THRESHOLD` to control when shipments are disabled due to failures
 
 ### Email Tracking Workflow
@@ -252,6 +257,8 @@ The server automatically loads variables from a `.env` file if present. Environm
 - `AUTO_UPDATE_FAILURE_THRESHOLD` (default: 10) - Number of consecutive failures before disabling auto-updates for a shipment
 - `UPS_AUTO_UPDATE_ENABLED` (default: true) - Enable/disable UPS automatic updates
 - `UPS_AUTO_UPDATE_CUTOFF_DAYS` (default: 30) - Cutoff days for UPS shipments (falls back to AUTO_UPDATE_CUTOFF_DAYS if 0)
+- `DHL_AUTO_UPDATE_ENABLED` (default: true) - Enable/disable DHL automatic updates
+- `DHL_AUTO_UPDATE_CUTOFF_DAYS` (default: 0) - Cutoff days for DHL shipments (falls back to AUTO_UPDATE_CUTOFF_DAYS if 0)
 - `CACHE_TTL` (default: 5m) - Cache time-to-live duration
 - `DISABLE_CACHE` (default: false) - Disable refresh response caching
 - `DISABLE_RATE_LIMIT` (default: false) - Disable rate limiting for development/testing
@@ -305,6 +312,7 @@ tmux kill-session -t session-name     # Stop servers and session
 # Ctrl+b then d  -> Detach from session (keeps servers running)
 # Ctrl+C         -> Stop server in current window
 ```
+IMPORTANT: When creating a development environment it is best practice to name the session after the git branch name.
 
 ### Manual Development Setup
 - Use the start-dev.sh script for the recommended tmux-based workflow

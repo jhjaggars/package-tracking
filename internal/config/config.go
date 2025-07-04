@@ -52,6 +52,8 @@ type Config struct {
 	// Per-carrier auto-update configuration
 	UPSAutoUpdateEnabled        bool
 	UPSAutoUpdateCutoffDays     int
+	DHLAutoUpdateEnabled        bool
+	DHLAutoUpdateCutoffDays     int
 
 	// Cache configuration
 	CacheTTL                    time.Duration
@@ -108,6 +110,8 @@ func Load() (*Config, error) {
 		// Per-carrier auto-update configuration
 		UPSAutoUpdateEnabled:    getEnvBoolOrDefault("UPS_AUTO_UPDATE_ENABLED", true),
 		UPSAutoUpdateCutoffDays: getEnvIntOrDefault("UPS_AUTO_UPDATE_CUTOFF_DAYS", 30),
+		DHLAutoUpdateEnabled:    getEnvBoolOrDefault("DHL_AUTO_UPDATE_ENABLED", true),
+		DHLAutoUpdateCutoffDays: getEnvIntOrDefault("DHL_AUTO_UPDATE_CUTOFF_DAYS", 0),
 
 		// Cache configuration
 		CacheTTL:                    getEnvDurationOrDefault("CACHE_TTL", "5m"),
@@ -175,6 +179,9 @@ func (c *Config) validate() error {
 	}
 	if c.UPSAutoUpdateCutoffDays < 0 {
 		return fmt.Errorf("UPS auto update cutoff days must be non-negative")
+	}
+	if c.DHLAutoUpdateCutoffDays < 0 {
+		return fmt.Errorf("DHL auto update cutoff days must be non-negative")
 	}
 	if c.CacheTTL <= 0 {
 		return fmt.Errorf("cache TTL must be positive")
