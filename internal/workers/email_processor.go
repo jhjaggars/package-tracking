@@ -257,11 +257,8 @@ func (p *EmailProcessor) runProcessing() {
 
 // searchEmails searches for new emails to process
 func (p *EmailProcessor) searchEmails(ctx context.Context) ([]email.EmailMessage, error) {
-	// Use configured search query or build default
+	// Use configured search query (already built by config.GetSearchQuery())
 	query := p.config.SearchQuery
-	if query == "" {
-		query = email.BuildSearchQuery(nil, p.config.SearchAfterDays, p.config.UnreadOnly, "")
-	}
 	
 	emails, err := p.emailClient.Search(query)
 	if err != nil {

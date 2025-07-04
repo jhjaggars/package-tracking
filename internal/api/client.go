@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"package-tracking/internal/email"
@@ -54,6 +55,34 @@ type ErrorResponse struct {
 	Error   string `json:"error"`
 	Code    int    `json:"code,omitempty"`
 	Details string `json:"details,omitempty"`
+}
+
+// formatDescriptionWithMerchant formats description with merchant information
+func formatDescriptionWithMerchant(description, merchant, from, subject string) string {
+	if description != "" && merchant != "" {
+		return fmt.Sprintf("%s from %s", description, merchant)
+	}
+	if description != "" {
+		return description
+	}
+	if merchant != "" {
+		return fmt.Sprintf("Package from %s", merchant)
+	}
+	if subject != "" {
+		return subject
+	}
+	return fmt.Sprintf("Package from %s", from)
+}
+
+// containsMerchantInfo checks if description already contains merchant information
+func containsMerchantInfo(description, merchant string) bool {
+	if merchant == "" {
+		return false
+	}
+	
+	// Simple check for "from [merchant]" pattern
+	fromPattern := fmt.Sprintf("from %s", strings.ToLower(merchant))
+	return strings.Contains(strings.ToLower(description), fromPattern)
 }
 
 // NewClient creates a new API client
@@ -105,14 +134,17 @@ func (c *Client) CreateShipment(tracking email.TrackingInfo) error {
 		Status:         "pending", // Default status
 	}
 	
-	// If description is empty, generate one
+	// Enhanced description formatting with merchant information
 	if request.Description == "" {
-		request.Description = fmt.Sprintf("Package from %s", tracking.SourceEmail.From)
-		
-		// Try to extract description from email subject
-		if tracking.SourceEmail.Subject != "" {
-			request.Description = tracking.SourceEmail.Subject
-		}
+		request.Description = formatDescriptionWithMerchant(
+			tracking.Description,
+			tracking.Merchant,
+			tracking.SourceEmail.From,
+			tracking.SourceEmail.Subject,
+		)
+	} else if tracking.Merchant != "" && !containsMerchantInfo(request.Description, tracking.Merchant) {
+		// Enhance existing description with merchant info
+		request.Description = fmt.Sprintf("%s from %s", request.Description, tracking.Merchant)
 	}
 	
 	url := fmt.Sprintf("%s/api/shipments", c.baseURL)
@@ -366,4 +398,11 @@ type Stats struct {
 func (c *Client) GetStats() *Stats {
 	// TODO: Implement actual statistics tracking
 	return &Stats{}
+}
+
+// Close closes the client and releases resources
+func (c *Client) Close() error {
+	// For HTTP clients, there's typically nothing to close
+	// This method is provided for interface compatibility
+	return nil
 }

@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,9 +22,12 @@ type mockEmailClient struct {
 	errorOnSearch bool
 	errorOnGet   bool
 	closed       bool
+	lastSearchQuery string // Track the last search query used
 }
 
 func (m *mockEmailClient) Search(query string) ([]email.EmailMessage, error) {
+	m.lastSearchQuery = query // Store the query for verification
+	
 	if m.errorOnSearch {
 		return nil, fmt.Errorf("mock search error")
 	}
@@ -210,7 +214,7 @@ func TestNewEmailProcessor(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	for _, tc := range testCases {
@@ -340,7 +344,7 @@ func TestEmailProcessor_ProcessEmails(t *testing.T) {
 				MinConfidence: 0.5,
 				DebugMode:     false,
 			}
-			realExtractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig)
+			realExtractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig, &parser.LLMConfig{Enabled: false})
 			processor := NewEmailProcessor(config, emailClient, realExtractor, stateManager, apiClient, logger)
 
 			// Mark emails as already processed if specified
@@ -431,7 +435,7 @@ func TestEmailProcessor_DryRunMode(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -478,7 +482,7 @@ func TestEmailProcessor_MaxPerRunLimit(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -530,7 +534,7 @@ func TestEmailProcessor_HealthCheck(t *testing.T) {
 			extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 				EnableLLM:     false,
 				MinConfidence: 0.5,
-			})
+			}, &parser.LLMConfig{Enabled: false})
 			apiClient := &mockAPIClient{}
 
 			config := &EmailProcessorConfig{
@@ -565,7 +569,7 @@ func TestEmailProcessor_StartStop(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -605,7 +609,7 @@ func TestEmailProcessor_ConcurrentSafety(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -663,7 +667,7 @@ func TestEmailProcessor_ErrorRecovery(t *testing.T) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{
 		errorOnCreate: true, // Simulate API errors
 	}
@@ -725,7 +729,7 @@ func BenchmarkEmailProcessor_ProcessEmails(b *testing.B) {
 	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
 		EnableLLM:     false,
 		MinConfidence: 0.5,
-	})
+	}, &parser.LLMConfig{Enabled: false})
 	apiClient := &mockAPIClient{}
 
 	config := &EmailProcessorConfig{
@@ -741,4 +745,55 @@ func BenchmarkEmailProcessor_ProcessEmails(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		processor.runProcessing()
 	}
+}
+
+func TestEmailProcessor_SearchQueryNoRedundantBuilding(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// Create a custom search query to verify it's used directly
+	customQuery := "from:test@example.com subject:custom-search-test"
+
+	emailClient := &mockEmailClient{
+		emails: []email.EmailMessage{
+			{
+				ID:        "search-test-msg",
+				PlainText: "Test email content",
+			},
+		},
+	}
+	stateManager := newMockStateManager()
+	carrierFactory := carriers.NewClientFactory()
+	extractor := parser.NewTrackingExtractor(carrierFactory, &parser.ExtractorConfig{
+		EnableLLM:     false,
+		MinConfidence: 0.5,
+	}, &parser.LLMConfig{Enabled: false})
+	apiClient := &mockAPIClient{}
+
+	config := &EmailProcessorConfig{
+		CheckInterval:   5 * time.Minute,
+		MaxEmailsPerRun: 50,
+		SearchQuery:     customQuery, // Use custom search query
+		SearchAfterDays: 30,
+		UnreadOnly:      false,
+	}
+
+	processor := NewEmailProcessor(config, emailClient, extractor, stateManager, apiClient, logger)
+
+	// Run email search
+	emails, err := processor.searchEmails(context.Background())
+	if err != nil {
+		t.Fatalf("Search emails failed: %v", err)
+	}
+
+	// Verify the configured search query was used directly without modification
+	if emailClient.lastSearchQuery != customQuery {
+		t.Errorf("Expected search query '%s', but got '%s'", customQuery, emailClient.lastSearchQuery)
+	}
+
+	// Verify emails were found
+	if len(emails) != 1 {
+		t.Errorf("Expected 1 email, got %d", len(emails))
+	}
+
+	t.Logf("Successfully verified custom search query is used: %s", emailClient.lastSearchQuery)
 }

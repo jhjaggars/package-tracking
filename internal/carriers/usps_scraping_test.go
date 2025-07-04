@@ -118,8 +118,8 @@ func TestUSPSScrapingClient_Track_Success(t *testing.T) {
 </html>`
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "track") {
-			t.Errorf("Expected path to contain 'track', got %s", r.URL.Path)
+		if !strings.Contains(r.URL.Path, "TrackConfirmAction") {
+			t.Errorf("Expected path to contain 'TrackConfirmAction', got %s", r.URL.Path)
 		}
 		
 		if r.Method != "GET" {
@@ -133,7 +133,7 @@ func TestUSPSScrapingClient_Track_Success(t *testing.T) {
 		}
 		
 		// Check tracking number in query parameters
-		trackingNumber := r.URL.Query().Get("id")
+		trackingNumber := r.URL.Query().Get("tLabels")
 		if trackingNumber != "9400111899562347123456" {
 			t.Errorf("Expected tracking number=9400111899562347123456, got %s", trackingNumber)
 		}

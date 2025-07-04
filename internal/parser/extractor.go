@@ -30,7 +30,7 @@ type ExtractorConfig struct {
 }
 
 // NewTrackingExtractor creates a new tracking number extractor
-func NewTrackingExtractor(carrierFactory *carriers.ClientFactory, config *ExtractorConfig) *TrackingExtractor {
+func NewTrackingExtractor(carrierFactory *carriers.ClientFactory, config *ExtractorConfig, llmConfig *LLMConfig) *TrackingExtractor {
 	if config == nil {
 		config = &ExtractorConfig{
 			EnableLLM:           false,
@@ -50,9 +50,19 @@ func NewTrackingExtractor(carrierFactory *carriers.ClientFactory, config *Extrac
 		// Note: EnableLLM, UseHybridValidation, and DebugMode default to false which is correct
 	}
 	
+	// Initialize LLM extractor based on configuration
+	var llmExtractor LLMExtractor
+	if config.EnableLLM && llmConfig != nil {
+		// Use the LLM extractor factory to create appropriate extractor
+		llmExtractor = NewLLMExtractor(llmConfig)
+	} else {
+		llmExtractor = NewNoOpLLMExtractor()
+	}
+	
 	return &TrackingExtractor{
 		carrierFactory: carrierFactory,
 		patterns:       NewPatternManager(),
+		llmExtractor:   llmExtractor,
 		config:         config,
 	}
 }
@@ -531,7 +541,7 @@ func (e *TrackingExtractor) isKnownCarrierSender(from string) bool {
 	return false
 }
 
-// mergeResults combines regex and LLM results
+// mergeResults combines regex and LLM results with confidence-based fallback
 func (e *TrackingExtractor) mergeResults(regexResults, llmResults []email.TrackingInfo) []email.TrackingInfo {
 	merged := make(map[string]*email.TrackingInfo)
 	
@@ -541,8 +551,23 @@ func (e *TrackingExtractor) mergeResults(regexResults, llmResults []email.Tracki
 		merged[key] = &result
 	}
 	
-	// Add or enhance with LLM results
+	// Filter LLM results by confidence threshold (0.7 as per requirements)
+	confidenceThreshold := 0.7
+	var highConfidenceLLMResults []email.TrackingInfo
+	
 	for _, llmResult := range llmResults {
+		if llmResult.Confidence >= confidenceThreshold {
+			highConfidenceLLMResults = append(highConfidenceLLMResults, llmResult)
+		} else {
+			if e.config.DebugMode {
+				log.Printf("LLM result filtered due to low confidence: %s (confidence: %f < %f)", 
+					llmResult.Number, llmResult.Confidence, confidenceThreshold)
+			}
+		}
+	}
+	
+	// Add or enhance with high-confidence LLM results only
+	for _, llmResult := range highConfidenceLLMResults {
 		key := llmResult.Number + ":" + llmResult.Carrier
 		
 		if existing, found := merged[key]; found {
@@ -552,6 +577,9 @@ func (e *TrackingExtractor) mergeResults(regexResults, llmResults []email.Tracki
 			}
 			if llmResult.Description != "" && existing.Description == "" {
 				existing.Description = llmResult.Description
+			}
+			if llmResult.Merchant != "" && existing.Merchant == "" {
+				existing.Merchant = llmResult.Merchant
 			}
 			existing.Source = "hybrid"
 		} else {

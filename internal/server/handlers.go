@@ -7,6 +7,8 @@ import (
 	"package-tracking/internal/cache"
 	"package-tracking/internal/database"
 	"package-tracking/internal/handlers"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // TestConfig implements the Config interface for testing
@@ -147,4 +149,23 @@ func (hw *HandlerWrappers) RegisterRoutes(router *Router) {
 
 	// Static file routes (catch-all for SPA)
 	router.GET("/{path:.*}", hw.ServeStatic)
+}
+
+// RegisterChiRoutes registers all routes with a chi router
+func (hw *HandlerWrappers) RegisterChiRoutes(r chi.Router) {
+	// API routes
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/shipments", hw.shipmentHandler.GetShipments)
+		r.Post("/shipments", hw.shipmentHandler.CreateShipment)
+		r.Get("/shipments/{id}", hw.shipmentHandler.GetShipmentByID)
+		r.Put("/shipments/{id}", hw.shipmentHandler.UpdateShipment)
+		r.Delete("/shipments/{id}", hw.shipmentHandler.DeleteShipment)
+		r.Get("/shipments/{id}/events", hw.shipmentHandler.GetShipmentEvents)
+		r.Post("/shipments/{id}/refresh", hw.shipmentHandler.RefreshShipment)
+		r.Get("/health", hw.healthHandler.HealthCheck)
+		r.Get("/carriers", hw.carrierHandler.GetCarriers)
+	})
+
+	// Static file routes (catch-all for SPA)
+	r.Get("/*", hw.staticHandler.ServeHTTP)
 }

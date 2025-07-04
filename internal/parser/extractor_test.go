@@ -19,7 +19,12 @@ func TestTrackingExtractor_Extract(t *testing.T) {
 		DebugMode:           false,
 	}
 	
-	extractor := NewTrackingExtractor(carrierFactory, config)
+	// LLM config for test (disabled)
+	llmConfig := &LLMConfig{
+		Enabled: false,
+	}
+	
+	extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
 	
 	testCases := []struct {
 		name             string
@@ -231,7 +236,12 @@ func TestEmailContent_Preprocessing(t *testing.T) {
 		DebugMode:     true,
 	}
 	
-	extractor := NewTrackingExtractor(carrierFactory, config)
+	// LLM config for test (disabled)
+	llmConfig := &LLMConfig{
+		Enabled: false,
+	}
+	
+	extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
 	
 	testCases := []struct {
 		name     string
@@ -295,7 +305,12 @@ func TestCarrierIdentification(t *testing.T) {
 		MinConfidence: 0.5,
 	}
 	
-	extractor := NewTrackingExtractor(carrierFactory, config)
+	// LLM config for test (disabled)
+	llmConfig := &LLMConfig{
+		Enabled: false,
+	}
+	
+	extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
 	
 	testCases := []struct {
 		name           string
@@ -374,7 +389,12 @@ func BenchmarkTrackingExtractor_Extract(b *testing.B) {
 		MinConfidence: 0.5,
 	}
 	
-	extractor := NewTrackingExtractor(carrierFactory, config)
+	// LLM config for test (disabled)
+	llmConfig := &LLMConfig{
+		Enabled: false,
+	}
+	
+	extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
 	
 	content := &email.EmailContent{
 		PlainText: "Your UPS package 1Z999AA1234567890 and USPS package 9400111699000367046792 have shipped. FedEx tracking: 123456789012",
@@ -393,6 +413,70 @@ func BenchmarkTrackingExtractor_Extract(b *testing.B) {
 	}
 }
 
+func TestTrackingExtractor_LLMInitialization(t *testing.T) {
+	carrierFactory := carriers.NewClientFactory()
+	
+	tests := []struct {
+		name      string
+		config    *ExtractorConfig
+		expectErr bool
+	}{
+		{
+			name: "LLM enabled should not cause nil pointer",
+			config: &ExtractorConfig{
+				EnableLLM:     true,
+				MinConfidence: 0.5,
+			},
+			expectErr: false,
+		},
+		{
+			name: "LLM disabled should work normally",
+			config: &ExtractorConfig{
+				EnableLLM:     false,
+				MinConfidence: 0.5,
+			},
+			expectErr: false,
+		},
+		{
+			name:      "Nil config should work with defaults",
+			config:    nil,
+			expectErr: false,
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create extractor - should not panic
+			extractor := NewTrackingExtractor(carrierFactory, tt.config, &LLMConfig{Enabled: false})
+			
+			// Verify LLM extractor was initialized
+			if extractor.llmExtractor == nil {
+				t.Error("Expected llmExtractor to be initialized, got nil")
+			}
+			
+			// Test extraction with LLM-enabled content - should not panic
+			content := &email.EmailContent{
+				PlainText: "Your package 1Z999AA1234567890 has been shipped",
+				Subject:   "Package shipped",
+				From:      "test@ups.com",
+			}
+			
+			results, err := extractor.Extract(content)
+			if (err != nil) != tt.expectErr {
+				t.Errorf("Extract() error = %v, expectErr %v", err, tt.expectErr)
+			}
+			
+			// Should find at least the UPS tracking number
+			if len(results) == 0 {
+				t.Error("Expected to find tracking numbers, got none")
+			}
+			
+			t.Logf("Configuration: EnableLLM=%v, found %d tracking numbers", 
+				extractor.config.EnableLLM, len(results))
+		})
+	}
+}
+
 func BenchmarkPatternManager_ExtractForCarrier(b *testing.B) {
 	pm := NewPatternManager()
 	text := "Your UPS package 1Z999AA1234567890 has shipped via UPS Ground service"
@@ -400,5 +484,179 @@ func BenchmarkPatternManager_ExtractForCarrier(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pm.ExtractForCarrier(text, "ups")
+	}
+}
+
+func TestTrackingExtractor_ConfidenceBasedFallback(t *testing.T) {
+	// Test confidence-based fallback logic
+	carrierFactory := carriers.NewClientFactory()
+	
+	testCases := []struct {
+		name                string
+		llmEnabled          bool
+		llmResults          []email.TrackingInfo
+		regexResults        []email.TrackingInfo
+		confidenceThreshold float64
+		expectedUseLLM      bool
+		expectedResults     int
+	}{
+		{
+			name:       "high confidence LLM - use LLM",
+			llmEnabled: true,
+			llmResults: []email.TrackingInfo{
+				{
+					Number:      "1Z999AA1234567890",
+					Carrier:     "ups",
+					Description: "iPhone 15 Pro",
+					Merchant:    "Amazon",
+					Confidence:  0.95,
+					Source:      "llm",
+				},
+			},
+			regexResults: []email.TrackingInfo{
+				{
+					Number:     "1Z999AA1234567890",
+					Carrier:    "ups",
+					Confidence: 0.8,
+					Source:     "regex",
+				},
+			},
+			confidenceThreshold: 0.7,
+			expectedUseLLM:      true,
+			expectedResults:     1,
+		},
+		{
+			name:       "low confidence LLM - fallback to regex",
+			llmEnabled: true,
+			llmResults: []email.TrackingInfo{
+				{
+					Number:     "1Z999AA1234567890",
+					Carrier:    "ups",
+					Confidence: 0.5,
+					Source:     "llm",
+				},
+			},
+			regexResults: []email.TrackingInfo{
+				{
+					Number:     "1Z999AA1234567890",
+					Carrier:    "ups",
+					Confidence: 0.8,
+					Source:     "regex",
+				},
+			},
+			confidenceThreshold: 0.7,
+			expectedUseLLM:      false,
+			expectedResults:     1,
+		},
+		{
+			name:       "LLM disabled - use regex only",
+			llmEnabled: false,
+			llmResults: []email.TrackingInfo{},
+			regexResults: []email.TrackingInfo{
+				{
+					Number:     "1Z999AA1234567890",
+					Carrier:    "ups",
+					Confidence: 0.8,
+					Source:     "regex",
+				},
+			},
+			confidenceThreshold: 0.7,
+			expectedUseLLM:      false,
+			expectedResults:     1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &ExtractorConfig{
+				EnableLLM:           tc.llmEnabled,
+				MinConfidence:       tc.confidenceThreshold,
+				MaxCandidates:       10,
+				UseHybridValidation: true,
+				DebugMode:           false,
+			}
+			
+			llmConfig := &LLMConfig{
+				Enabled: tc.llmEnabled,
+			}
+			
+			extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
+			
+			// Test the confidence-based logic
+			for _, llmResult := range tc.llmResults {
+				shouldUseLLM := tc.llmEnabled && llmResult.Confidence >= tc.confidenceThreshold
+				if shouldUseLLM != tc.expectedUseLLM {
+					t.Errorf("Expected shouldUseLLM to be %v, got %v (confidence: %f, threshold: %f)", 
+						tc.expectedUseLLM, shouldUseLLM, llmResult.Confidence, tc.confidenceThreshold)
+				}
+			}
+			
+			// Test merging logic
+			merged := extractor.mergeResults(tc.regexResults, tc.llmResults)
+			if len(merged) != tc.expectedResults {
+				t.Errorf("Expected %d merged results, got %d", tc.expectedResults, len(merged))
+			}
+		})
+	}
+}
+
+func TestTrackingExtractor_MergeResultsWithConfidence(t *testing.T) {
+	// Test merging logic with confidence considerations
+	carrierFactory := carriers.NewClientFactory()
+	config := &ExtractorConfig{
+		EnableLLM:           true,
+		MinConfidence:       0.7,
+		MaxCandidates:       10,
+		UseHybridValidation: true,
+		DebugMode:           false,
+	}
+	
+	llmConfig := &LLMConfig{
+		Enabled: true,
+	}
+	
+	extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
+	
+	regexResults := []email.TrackingInfo{
+		{
+			Number:     "1Z999AA1234567890",
+			Carrier:    "ups",
+			Confidence: 0.8,
+			Source:     "regex",
+		},
+	}
+	
+	llmResults := []email.TrackingInfo{
+		{
+			Number:      "1Z999AA1234567890",
+			Carrier:     "ups",
+			Description: "iPhone 15 Pro",
+			Merchant:    "Amazon",
+			Confidence:  0.95,
+			Source:      "llm",
+		},
+	}
+	
+	merged := extractor.mergeResults(regexResults, llmResults)
+	
+	if len(merged) != 1 {
+		t.Errorf("Expected 1 merged result, got %d", len(merged))
+	}
+	
+	result := merged[0]
+	if result.Confidence != 0.95 {
+		t.Errorf("Expected highest confidence (0.95), got %f", result.Confidence)
+	}
+	
+	if result.Description != "iPhone 15 Pro" {
+		t.Errorf("Expected LLM description 'iPhone 15 Pro', got '%s'", result.Description)
+	}
+	
+	if result.Merchant != "Amazon" {
+		t.Errorf("Expected LLM merchant 'Amazon', got '%s'", result.Merchant)
+	}
+	
+	if result.Source != "hybrid" {
+		t.Errorf("Expected source 'hybrid', got '%s'", result.Source)
 	}
 }

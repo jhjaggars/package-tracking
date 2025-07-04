@@ -74,3 +74,6 @@ tmp/
 temp/
 *.tmp
 *.log.env
+gmail-tokens.json
+email-tracker.yaml
+.bak

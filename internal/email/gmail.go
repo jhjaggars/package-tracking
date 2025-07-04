@@ -250,28 +250,39 @@ func BuildSearchQuery(carriers []string, afterDays int, unreadOnly bool, customQ
 	
 	var parts []string
 	
-	// Add carrier-specific sender filters
-	if len(carriers) > 0 {
-		var senders []string
-		for _, carrier := range carriers {
-			switch carrier {
-			case "ups":
-				senders = append(senders, "noreply@ups.com", "quantum@ups.com", "pkginfo@ups.com")
-			case "usps":
-				senders = append(senders, "usps.com", "informeddelivery@email.usps.com")
-			case "fedex":
-				senders = append(senders, "fedex.com", "tracking@fedex.com", "shipment@fedex.com")
-			case "dhl":
-				senders = append(senders, "dhl.com", "noreply@dhl.com")
-			}
+	// Enhanced mode: when no carriers specified, use broader search for LLM enhancement
+	if len(carriers) == 0 {
+		// Use only date and unread filters for broadened search
+		// No sender or subject filtering to capture more potential emails
+		if afterDays > 0 {
+			afterDate := time.Now().AddDate(0, 0, -afterDays).Format("2006/1/2")
+			parts = append(parts, fmt.Sprintf("after:%s", afterDate))
 		}
 		
-		if len(senders) > 0 {
-			parts = append(parts, fmt.Sprintf("from:(%s)", strings.Join(senders, " OR ")))
+		if unreadOnly {
+			parts = append(parts, "is:unread")
 		}
-	} else {
-		// Default: search common shipping senders
-		parts = append(parts, "from:(ups.com OR usps.com OR fedex.com OR dhl.com OR amazon.com OR shopify.com)")
+		
+		return strings.Join(parts, " ")
+	}
+	
+	// Legacy mode: carrier-specific filtering
+	var senders []string
+	for _, carrier := range carriers {
+		switch carrier {
+		case "ups":
+			senders = append(senders, "noreply@ups.com", "quantum@ups.com", "pkginfo@ups.com")
+		case "usps":
+			senders = append(senders, "usps.com", "informeddelivery@email.usps.com")
+		case "fedex":
+			senders = append(senders, "fedex.com", "tracking@fedex.com", "shipment@fedex.com")
+		case "dhl":
+			senders = append(senders, "dhl.com", "noreply@dhl.com")
+		}
+	}
+	
+	if len(senders) > 0 {
+		parts = append(parts, fmt.Sprintf("from:(%s)", strings.Join(senders, " OR ")))
 	}
 	
 	// Add subject filters for shipping-related terms

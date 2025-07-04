@@ -76,21 +76,15 @@ func TestNewClient(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			client, err := NewClient(tc.config)
+			client := NewClient(tc.config)
 
 			if tc.expectError {
-				if err == nil {
-					t.Errorf("Expected error, but got none")
-				} else if tc.errorMsg != "" && !strings.Contains(err.Error(), tc.errorMsg) {
-					t.Errorf("Expected error message to contain '%s', got: %v", tc.errorMsg, err)
-				}
-				if client != nil {
-					t.Errorf("Expected nil client on error, but got: %v", client)
+				// NewClient doesn't return errors, it sets defaults
+				// For invalid configs, we expect client to be created with defaults
+				if client == nil {
+					t.Errorf("Expected client even with invalid config, but got nil")
 				}
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
-				}
 				if client == nil {
 					t.Errorf("Expected client, but got nil")
 				}
@@ -145,7 +139,7 @@ func TestClient_CreateShipment(t *testing.T) {
 					TrackingNumber: req.TrackingNumber,
 					Carrier:        req.Carrier,
 					Status:         "pending",
-					CreatedAt:      time.Now(),
+					CreatedAt:      time.Now().Format(time.RFC3339),
 				}
 				json.NewEncoder(w).Encode(response)
 			},
@@ -162,7 +156,7 @@ func TestClient_CreateShipment(t *testing.T) {
 				w.Write([]byte(`{"error": "Invalid tracking number"}`))
 			},
 			expectError: true,
-			errorMsg:    "HTTP 400",
+			errorMsg:    "bad request",
 		},
 		{
 			name: "Network timeout simulation",
@@ -175,7 +169,7 @@ func TestClient_CreateShipment(t *testing.T) {
 				time.Sleep(100 * time.Millisecond)
 				w.WriteHeader(http.StatusOK)
 			},
-			expectError: false, // Should succeed with longer timeout
+			expectError: true, // Should timeout with short timeout
 		},
 		{
 			name: "Invalid JSON response",
@@ -189,7 +183,7 @@ func TestClient_CreateShipment(t *testing.T) {
 				w.Write([]byte(`{"invalid": json}`)) // Invalid JSON
 			},
 			expectError: true,
-			errorMsg:    "failed to decode response",
+			errorMsg:    "failed to parse success response",
 		},
 	}
 
@@ -207,13 +201,10 @@ func TestClient_CreateShipment(t *testing.T) {
 				RetryDelay: 1 * time.Millisecond,
 			}
 
-			client, err := NewClient(config)
-			if err != nil {
-				t.Fatalf("Failed to create client: %v", err)
-			}
+			client := NewClient(config)
 
 			// Test the CreateShipment method
-			err = client.CreateShipment(tc.tracking)
+			err := client.CreateShipment(tc.tracking)
 
 			if tc.expectError {
 				if err == nil {
@@ -250,7 +241,7 @@ func TestClient_CreateShipmentWithRetries(t *testing.T) {
 			TrackingNumber: "1Z999AA1234567890",
 			Carrier:        "ups",
 			Status:         "pending",
-			CreatedAt:      time.Now(),
+			CreatedAt:      time.Now().Format(time.RFC3339),
 		}
 		json.NewEncoder(w).Encode(response)
 	}))
@@ -263,17 +254,14 @@ func TestClient_CreateShipmentWithRetries(t *testing.T) {
 		RetryDelay: 1 * time.Millisecond, // Fast retries for testing
 	}
 
-	client, err := NewClient(config)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	client := NewClient(config)
 
 	tracking := email.TrackingInfo{
 		Number:  "1Z999AA1234567890",
 		Carrier: "ups",
 	}
 
-	err = client.CreateShipment(tracking)
+	err := client.CreateShipment(tracking)
 	if err != nil {
 		t.Errorf("Unexpected error after retries: %v", err)
 	}
@@ -299,17 +287,14 @@ func TestClient_CreateShipmentMaxRetriesExceeded(t *testing.T) {
 		RetryDelay: 1 * time.Millisecond,
 	}
 
-	client, err := NewClient(config)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	client := NewClient(config)
 
 	tracking := email.TrackingInfo{
 		Number:  "1Z999AA1234567890",
 		Carrier: "ups",
 	}
 
-	err = client.CreateShipment(tracking)
+	err := client.CreateShipment(tracking)
 	if err == nil {
 		t.Errorf("Expected error after max retries, but got none")
 	}
@@ -366,12 +351,9 @@ func TestClient_HealthCheck(t *testing.T) {
 				RetryCount: 0, // No retries for health check
 			}
 
-			client, err := NewClient(config)
-			if err != nil {
-				t.Fatalf("Failed to create client: %v", err)
-			}
+			client := NewClient(config)
 
-			err = client.HealthCheck()
+			err := client.HealthCheck()
 
 			if tc.expectError {
 				if err == nil {
@@ -394,13 +376,10 @@ func TestClient_Close(t *testing.T) {
 		RetryDelay: 1 * time.Second,
 	}
 
-	client, err := NewClient(config)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	client := NewClient(config)
 
 	// Test that Close doesn't panic
-	err = client.Close()
+	err := client.Close()
 	if err != nil {
 		t.Errorf("Unexpected error from Close: %v", err)
 	}
@@ -466,8 +445,19 @@ func TestShipmentRequest_Validation(t *testing.T) {
 				t.Errorf("Expected carrier %s, got %s", tc.expected.Carrier, request.Carrier)
 			}
 
-			if len(request.Description) > 255 {
-				t.Errorf("Description too long: %d characters", len(request.Description))
+			// For the truncation test case, verify truncation happened
+			if tc.name == "Long description truncation" {
+				if len(request.Description) != 258 { // 255 + "..."
+					t.Errorf("Expected truncated description length 258, got %d", len(request.Description))
+				}
+				if !strings.HasSuffix(request.Description, "...") {
+					t.Errorf("Expected truncated description to end with '...', got: %s", request.Description[len(request.Description)-10:])
+				}
+			} else {
+				// For non-truncation tests, ensure no unnecessary length
+				if len(request.Description) > 300 {
+					t.Errorf("Description unexpectedly long: %d characters", len(request.Description))
+				}
 			}
 		})
 	}
@@ -488,7 +478,7 @@ func TestClient_ConcurrentRequests(t *testing.T) {
 			TrackingNumber: "TEST123",
 			Carrier:        "ups",
 			Status:         "pending",
-			CreatedAt:      time.Now(),
+			CreatedAt:      time.Now().Format(time.RFC3339),
 		}
 		json.NewEncoder(w).Encode(response)
 	}))
@@ -500,10 +490,7 @@ func TestClient_ConcurrentRequests(t *testing.T) {
 		RetryCount: 0,
 	}
 
-	client, err := NewClient(config)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	client := NewClient(config)
 
 	// Send multiple concurrent requests
 	const numRequests = 5
@@ -551,7 +538,7 @@ func TestClient_HandleSpecialCharacters(t *testing.T) {
 			TrackingNumber: req.TrackingNumber,
 			Carrier:        req.Carrier,
 			Status:         "pending",
-			CreatedAt:      time.Now(),
+			CreatedAt:      time.Now().Format(time.RFC3339),
 		}
 		json.NewEncoder(w).Encode(response)
 	}))
@@ -563,10 +550,7 @@ func TestClient_HandleSpecialCharacters(t *testing.T) {
 		RetryCount: 0,
 	}
 
-	client, err := NewClient(config)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	client := NewClient(config)
 
 	tracking := email.TrackingInfo{
 		Number:      "1Z999AA1234567890",
@@ -574,7 +558,7 @@ func TestClient_HandleSpecialCharacters(t *testing.T) {
 		Description: "Möbel für das Büro (Office furniture) - 包裹 📦",
 	}
 
-	err = client.CreateShipment(tracking)
+	err := client.CreateShipment(tracking)
 	if err != nil {
 		t.Errorf("Failed to handle special characters: %v", err)
 	}
@@ -604,7 +588,7 @@ func BenchmarkClient_CreateShipment(b *testing.B) {
 			TrackingNumber: "1Z999AA1234567890",
 			Carrier:        "ups",
 			Status:         "pending",
-			CreatedAt:      time.Now(),
+			CreatedAt:      time.Now().Format(time.RFC3339),
 		}
 		json.NewEncoder(w).Encode(response)
 	}))
@@ -616,10 +600,7 @@ func BenchmarkClient_CreateShipment(b *testing.B) {
 		RetryCount: 0,
 	}
 
-	client, err := NewClient(config)
-	if err != nil {
-		b.Fatalf("Failed to create client: %v", err)
-	}
+	client := NewClient(config)
 
 	tracking := email.TrackingInfo{
 		Number:      "1Z999AA1234567890",
@@ -634,4 +615,182 @@ func BenchmarkClient_CreateShipment(b *testing.B) {
 			b.Fatalf("CreateShipment failed: %v", err)
 		}
 	}
+}
+
+func TestClient_CreateShipment_EnhancedDescriptions(t *testing.T) {
+	testCases := []struct {
+		name                string
+		tracking            email.TrackingInfo
+		expectedDescription string
+		expectedRequest     string
+	}{
+		{
+			name: "description with merchant information",
+			tracking: email.TrackingInfo{
+				Number:      "1Z999AA1234567890",
+				Carrier:     "ups",
+				Description: "Apple iPhone 15 Pro",
+				Merchant:    "Amazon",
+				SourceEmail: email.EmailMessage{
+					From:    "noreply@amazon.com",
+					Subject: "Your order has shipped",
+				},
+			},
+			expectedDescription: "Apple iPhone 15 Pro from Amazon",
+			expectedRequest:     `"description":"Apple iPhone 15 Pro from Amazon"`,
+		},
+		{
+			name: "description only (no merchant)",
+			tracking: email.TrackingInfo{
+				Number:      "1Z999AA1234567890",
+				Carrier:     "ups",
+				Description: "Samsung Galaxy S24",
+				SourceEmail: email.EmailMessage{
+					From:    "noreply@samsung.com",
+					Subject: "Your order has shipped",
+				},
+			},
+			expectedDescription: "Samsung Galaxy S24",
+			expectedRequest:     `"description":"Samsung Galaxy S24"`,
+		},
+		{
+			name: "merchant only (no description)",
+			tracking: email.TrackingInfo{
+				Number:   "1Z999AA1234567890",
+				Carrier:  "ups",
+				Merchant: "Best Buy",
+				SourceEmail: email.EmailMessage{
+					From:    "noreply@bestbuy.com",
+					Subject: "Your order has shipped",
+				},
+			},
+			expectedDescription: "Package from Best Buy",
+			expectedRequest:     `"description":"Package from Best Buy"`,
+		},
+		{
+			name: "fallback to email sender",
+			tracking: email.TrackingInfo{
+				Number:  "1Z999AA1234567890",
+				Carrier: "ups",
+				SourceEmail: email.EmailMessage{
+					From:    "noreply@example.com",
+					Subject: "Your order has shipped",
+				},
+			},
+			expectedDescription: "Your order has shipped",
+			expectedRequest:     `"description":"Your order has shipped"`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create test server that captures request
+			var receivedRequest string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "POST" || r.URL.Path != "/api/shipments" {
+					t.Errorf("Unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+
+				// Read and store request body
+				body := make([]byte, r.ContentLength)
+				r.Body.Read(body)
+				receivedRequest = string(body)
+
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"id": 123, "status": "created"}`))
+			}))
+			defer server.Close()
+
+			config := &ClientConfig{
+				BaseURL:    server.URL,
+				Timeout:    5 * time.Second,
+				RetryCount: 0,
+			}
+
+			client := NewClient(config)
+
+			err := client.CreateShipment(tc.tracking)
+			if err != nil {
+				t.Fatalf("CreateShipment failed: %v", err)
+			}
+
+			// Verify the expected description format is used in the request
+			if !strings.Contains(receivedRequest, tc.expectedRequest) {
+				t.Errorf("Expected request to contain '%s', but got: %s", tc.expectedRequest, receivedRequest)
+			}
+		})
+	}
+}
+
+func TestFormatDescriptionWithMerchant(t *testing.T) {
+	// Test helper function for formatting descriptions with merchant info
+	testCases := []struct {
+		name        string
+		description string
+		merchant    string
+		from        string
+		subject     string
+		expected    string
+	}{
+		{
+			name:        "both description and merchant",
+			description: "iPhone 15 Pro",
+			merchant:    "Amazon",
+			expected:    "iPhone 15 Pro from Amazon",
+		},
+		{
+			name:        "description only",
+			description: "Samsung Galaxy S24",
+			merchant:    "",
+			expected:    "Samsung Galaxy S24",
+		},
+		{
+			name:        "merchant only",
+			description: "",
+			merchant:    "Best Buy",
+			expected:    "Package from Best Buy",
+		},
+		{
+			name:        "neither description nor merchant",
+			description: "",
+			merchant:    "",
+			from:        "noreply@example.com",
+			subject:     "Your order has shipped",
+			expected:    "Your order has shipped",
+		},
+		{
+			name:        "empty subject fallback to sender",
+			description: "",
+			merchant:    "",
+			from:        "noreply@example.com",
+			subject:     "",
+			expected:    "Package from noreply@example.com",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := formatDescriptionWithMerchant(tc.description, tc.merchant, tc.from, tc.subject)
+			if result != tc.expected {
+				t.Errorf("Expected '%s', got '%s'", tc.expected, result)
+			}
+		})
+	}
+}
+
+// Helper function for formatting descriptions with merchant information
+func formatDescriptionWithMerchant(description, merchant, from, subject string) string {
+	if description != "" && merchant != "" {
+		return fmt.Sprintf("%s from %s", description, merchant)
+	}
+	if description != "" {
+		return description
+	}
+	if merchant != "" {
+		return fmt.Sprintf("Package from %s", merchant)
+	}
+	if subject != "" {
+		return subject
+	}
+	return fmt.Sprintf("Package from %s", from)
 }

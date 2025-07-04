@@ -204,3 +204,142 @@ func validateGmailConfig(config *GmailConfig) error {
 	return nil
 }
 
+func TestBuildSearchQuery_BroadenedSearch(t *testing.T) {
+	testCases := []struct {
+		name         string
+		carriers     []string
+		afterDays    int
+		unreadOnly   bool
+		customQuery  string
+		expectFields []string
+		expectNot    []string
+	}{
+		{
+			name:         "broadened search - no carrier filtering",
+			carriers:     []string{},
+			afterDays:    30,
+			unreadOnly:   true,
+			customQuery:  "",
+			expectFields: []string{"after:", "is:unread"},
+			expectNot:    []string{"from:(ups.com", "from:(usps.com"},
+		},
+		{
+			name:         "date-based unread emails only",
+			carriers:     []string{},
+			afterDays:    30,
+			unreadOnly:   true,
+			customQuery:  "",
+			expectFields: []string{"after:", "is:unread"},
+			expectNot:    []string{"subject:(tracking"},
+		},
+		{
+			name:         "custom query overrides everything",
+			carriers:     []string{"ups"},
+			afterDays:    30,
+			unreadOnly:   true,
+			customQuery:  "after:2024/12/05 is:unread",
+			expectFields: []string{"after:2024/12/05", "is:unread"},
+			expectNot:    []string{"from:(ups.com", "subject:(tracking"},
+		},
+		{
+			name:         "legacy mode with carriers",
+			carriers:     []string{"ups", "usps"},
+			afterDays:    7,
+			unreadOnly:   false,
+			customQuery:  "",
+			expectFields: []string{"from:(", "subject:(tracking", "after:"},
+			expectNot:    []string{"is:unread"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			query := BuildSearchQuery(tc.carriers, tc.afterDays, tc.unreadOnly, tc.customQuery)
+			
+			// Check expected fields are present
+			for _, field := range tc.expectFields {
+				if !containsSubstring(query, field) {
+					t.Errorf("Expected query to contain '%s', but got: %s", field, query)
+				}
+			}
+			
+			// Check fields that should NOT be present
+			for _, field := range tc.expectNot {
+				if containsSubstring(query, field) {
+					t.Errorf("Expected query NOT to contain '%s', but got: %s", field, query)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildSearchQuery_BroadenedSearchDates(t *testing.T) {
+	// Test specific date calculations
+	testCases := []struct {
+		name      string
+		afterDays int
+		expected  string
+	}{
+		{
+			name:      "30 days ago",
+			afterDays: 30,
+			expected:  time.Now().AddDate(0, 0, -30).Format("2006/1/2"),
+		},
+		{
+			name:      "7 days ago",
+			afterDays: 7,
+			expected:  time.Now().AddDate(0, 0, -7).Format("2006/1/2"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			query := BuildSearchQuery([]string{}, tc.afterDays, true, "")
+			expectedDate := fmt.Sprintf("after:%s", tc.expected)
+			
+			if !containsSubstring(query, expectedDate) {
+				t.Errorf("Expected query to contain '%s', but got: %s", expectedDate, query)
+			}
+		})
+	}
+}
+
+func TestBuildSearchQuery_EnhancedMode(t *testing.T) {
+	// Test the new enhanced mode that should be used for issue #45
+	query := BuildSearchQuery([]string{}, 30, true, "")
+	
+	// Should contain date filter
+	expectedDate := time.Now().AddDate(0, 0, -30).Format("2006/1/2")
+	if !containsSubstring(query, fmt.Sprintf("after:%s", expectedDate)) {
+		t.Errorf("Expected query to contain after:%s", expectedDate)
+	}
+	
+	// Should contain unread filter
+	if !containsSubstring(query, "is:unread") {
+		t.Errorf("Expected query to contain 'is:unread'")
+	}
+	
+	// Should NOT contain restrictive carrier filters
+	if containsSubstring(query, "from:(ups.com") {
+		t.Errorf("Expected query NOT to contain carrier-specific from: filters")
+	}
+	
+	// Should NOT contain restrictive subject filters
+	if containsSubstring(query, "subject:(tracking") {
+		t.Errorf("Expected query NOT to contain restrictive subject filters")
+	}
+}
+
+// Helper function for substring checking
+func containsSubstring(text, substr string) bool {
+	if len(substr) > len(text) {
+		return false
+	}
+	for i := 0; i <= len(text)-len(substr); i++ {
+		if text[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
