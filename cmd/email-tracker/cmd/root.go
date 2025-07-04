@@ -150,7 +150,12 @@ func loadConfiguration() (*config.EmailConfig, error) {
 	
 	// Override with CLI flags
 	if dryRun {
+		originalValue := cfg.Processing.DryRun
 		cfg.Processing.DryRun = true
+		if originalValue != true {
+			// Note: Using fmt.Printf since logger isn't available yet
+			fmt.Printf("DEBUG: CLI flag --dry-run overriding config value: %v -> %v\n", originalValue, true)
+		}
 	}
 	
 	// Set configuration defaults

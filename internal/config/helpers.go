@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -139,8 +140,11 @@ func loadEnvFile(filename string) error {
 		}
 		
 		// Only set if not already set in environment
-		if os.Getenv(key) == "" {
+		if existing := os.Getenv(key); existing == "" {
 			os.Setenv(key, value)
+			slog.Debug("Loaded env var from .env file", "key", key, "value", value)
+		} else {
+			slog.Debug("Env var already set, skipping .env file value", "key", key, "existing", existing, "env_file_value", value)
 		}
 	}
 	
@@ -150,4 +154,24 @@ func loadEnvFile(filename string) error {
 // LoadEnvFile is a public wrapper around loadEnvFile for external use
 func LoadEnvFile(filename string) error {
 	return loadEnvFile(filename)
+}
+
+// getEnvInt64OrDefault returns environment variable as int64 or default
+func getEnvInt64OrDefault(key string, defaultValue int64) int64 {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
+// getEnvFloatOrDefault returns environment variable as float64 or default
+func getEnvFloatOrDefault(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
 }
