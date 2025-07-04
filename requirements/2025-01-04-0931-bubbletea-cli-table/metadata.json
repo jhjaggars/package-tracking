@@ -1,0 +1,28 @@
+{
+  "id": "bubbletea-cli-table",
+  "started": "2025-01-04T09:31:00Z",
+  "lastUpdated": "2025-01-04T09:35:00Z",
+  "status": "active",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": [
+    "cmd/cli/cmd/list.go",
+    "internal/cli/output.go", 
+    "internal/cli/progress.go",
+    "cmd/cli/cmd/refresh.go",
+    "cmd/cli/cmd/update.go",
+    "cmd/cli/cmd/delete.go",
+    "internal/cli/client.go",
+    "internal/database/models.go"
+  ],
+  "relatedFeatures": [
+    "Progress spinner implementation",
+    "Table formatting system",
+    "Status color coding",
+    "Individual shipment operations",
+    "Configuration system"
+  ]
+}
