@@ -55,6 +55,7 @@ type TrackingInfo struct {
 	Number      string    `json:"number"`
 	Carrier     string    `json:"carrier"`
 	Description string    `json:"description"`
+	Merchant    string    `json:"merchant"`     // Store/retailer name for internal processing
 	Confidence  float64   `json:"confidence"`
 	Source      string    `json:"source"`       // "regex", "llm", "hybrid"
 	Context     string    `json:"context"`      // Where it was found in email

@@ -297,6 +297,27 @@ func (g *GmailClient) SearchWithDefaults(afterDays int, unreadOnly bool) ([]Emai
 	return g.Search(query)
 }
 
+// BuildSearchQueryForLLMProcessing constructs a broader Gmail search query for LLM processing
+// This function creates searches without sender/subject filtering to capture more emails
+// for LLM analysis, allowing the LLM to identify tracking information from a wider range of emails
+func BuildSearchQueryForLLMProcessing(afterDays int, unreadOnly bool) string {
+	var parts []string
+	
+	// Add date filter - this is the primary constraint for LLM processing
+	if afterDays > 0 {
+		afterDate := time.Now().AddDate(0, 0, -afterDays).Format("2006/1/2")
+		parts = append(parts, fmt.Sprintf("after:%s", afterDate))
+	}
+	
+	// Add unread filter to focus on new emails
+	if unreadOnly {
+		parts = append(parts, "is:unread")
+	}
+	
+	// Return broader search query without sender/subject restrictions
+	return strings.Join(parts, " ")
+}
+
 // SearchCarrierEmails searches for emails from specific carriers
 func (g *GmailClient) SearchCarrierEmails(carriers []string, afterDays int) ([]EmailMessage, error) {
 	query := BuildSearchQuery(carriers, afterDays, false, "")

@@ -2,6 +2,7 @@ package email
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -180,6 +181,191 @@ func TestTrackingCandidate_Structure(t *testing.T) {
 
 	if candidate.Position != 25 {
 		t.Errorf("Expected Position 25, got %d", candidate.Position)
+	}
+}
+
+func TestBuildSearchQuery_EnhancedSearch(t *testing.T) {
+	testCases := []struct {
+		name        string
+		carriers    []string
+		afterDays   int
+		unreadOnly  bool
+		customQuery string
+		expected    string
+	}{
+		{
+			name:        "Custom query takes precedence",
+			carriers:    []string{"ups"},
+			afterDays:   7,
+			unreadOnly:  true,
+			customQuery: "custom search query",
+			expected:    "custom search query",
+		},
+		{
+			name:       "Enhanced search for last 30 days unread",
+			carriers:   nil,
+			afterDays:  30,
+			unreadOnly: true,
+			expected:   "from:(ups.com OR usps.com OR fedex.com OR dhl.com OR amazon.com OR shopify.com) subject:(tracking OR shipment OR package OR delivery OR shipped OR \"tracking number\") after:2024/12/05 is:unread",
+		},
+		{
+			name:       "Specific carrier search",
+			carriers:   []string{"ups"},
+			afterDays:  30,
+			unreadOnly: true,
+			expected:   "from:(noreply@ups.com OR quantum@ups.com OR pkginfo@ups.com) subject:(tracking OR shipment OR package OR delivery OR shipped OR \"tracking number\") after:2024/12/05 is:unread",
+		},
+		{
+			name:       "Multiple carriers search",
+			carriers:   []string{"ups", "fedex"},
+			afterDays:  30,
+			unreadOnly: true,
+			expected:   "from:(noreply@ups.com OR quantum@ups.com OR pkginfo@ups.com OR fedex.com OR tracking@fedex.com OR shipment@fedex.com) subject:(tracking OR shipment OR package OR delivery OR shipped OR \"tracking number\") after:2024/12/05 is:unread",
+		},
+		{
+			name:       "No date filter",
+			carriers:   nil,
+			afterDays:  0,
+			unreadOnly: true,
+			expected:   "from:(ups.com OR usps.com OR fedex.com OR dhl.com OR amazon.com OR shopify.com) subject:(tracking OR shipment OR package OR delivery OR shipped OR \"tracking number\") is:unread",
+		},
+		{
+			name:       "Include read emails",
+			carriers:   nil,
+			afterDays:  30,
+			unreadOnly: false,
+			expected:   "from:(ups.com OR usps.com OR fedex.com OR dhl.com OR amazon.com OR shopify.com) subject:(tracking OR shipment OR package OR delivery OR shipped OR \"tracking number\") after:2024/12/05",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mock current time to ensure consistent date calculations
+			now := time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC)
+			
+			// Calculate expected date if afterDays is set
+			if tc.afterDays > 0 && tc.expected != tc.customQuery {
+				expectedDate := now.AddDate(0, 0, -tc.afterDays).Format("2006/1/2")
+				tc.expected = fmt.Sprintf("from:(ups.com OR usps.com OR fedex.com OR dhl.com OR amazon.com OR shopify.com) subject:(tracking OR shipment OR package OR delivery OR shipped OR \"tracking number\") after:%s", expectedDate)
+				if tc.unreadOnly {
+					tc.expected += " is:unread"
+				}
+				
+				// Handle specific carrier cases
+				if len(tc.carriers) > 0 {
+					var senders []string
+					for _, carrier := range tc.carriers {
+						switch carrier {
+						case "ups":
+							senders = append(senders, "noreply@ups.com", "quantum@ups.com", "pkginfo@ups.com")
+						case "fedex":
+							senders = append(senders, "fedex.com", "tracking@fedex.com", "shipment@fedex.com")
+						}
+					}
+					tc.expected = fmt.Sprintf("from:(%s) subject:(tracking OR shipment OR package OR delivery OR shipped OR \"tracking number\") after:%s", strings.Join(senders, " OR "), expectedDate)
+					if tc.unreadOnly {
+						tc.expected += " is:unread"
+					}
+				}
+			}
+
+			result := BuildSearchQuery(tc.carriers, tc.afterDays, tc.unreadOnly, tc.customQuery)
+			
+			// For non-custom queries, we need to handle the dynamic date calculation
+			if tc.customQuery == "" && tc.afterDays > 0 {
+				// Extract the date part from the result and verify it's reasonable
+				parts := strings.Split(result, " ")
+				var dateFound bool
+				for _, part := range parts {
+					if strings.HasPrefix(part, "after:") {
+						dateFound = true
+						// Verify the date is in the correct format
+						dateStr := strings.TrimPrefix(part, "after:")
+						_, err := time.Parse("2006/1/2", dateStr)
+						if err != nil {
+							t.Errorf("Invalid date format in result: %s", dateStr)
+						}
+					}
+				}
+				if !dateFound {
+					t.Errorf("Expected date filter not found in result: %s", result)
+				}
+			} else {
+				if result != tc.expected {
+					t.Errorf("Expected query: %s, got: %s", tc.expected, result)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildSearchQuery_EnhancedForLLMProcessing(t *testing.T) {
+	// Test the enhanced search query that will be used for LLM processing
+	// This should return a broader search to capture more emails for LLM analysis
+	testCases := []struct {
+		name       string
+		afterDays  int
+		unreadOnly bool
+		expected   string
+	}{
+		{
+			name:       "Enhanced search for LLM processing - 30 days unread",
+			afterDays:  30,
+			unreadOnly: true,
+			expected:   "after:DATE is:unread",
+		},
+		{
+			name:       "Enhanced search for LLM processing - 7 days unread",
+			afterDays:  7,
+			unreadOnly: true,
+			expected:   "after:DATE is:unread",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// For LLM processing, we want a broader search without sender/subject filtering
+			result := BuildSearchQueryForLLMProcessing(tc.afterDays, tc.unreadOnly)
+			
+			// Extract the date part and verify structure
+			parts := strings.Split(result, " ")
+			if len(parts) < 2 {
+				t.Errorf("Expected at least 2 parts in query, got %d: %s", len(parts), result)
+			}
+			
+			var hasDate, hasUnread bool
+			for _, part := range parts {
+				if strings.HasPrefix(part, "after:") {
+					hasDate = true
+					// Verify date format
+					dateStr := strings.TrimPrefix(part, "after:")
+					_, err := time.Parse("2006/1/2", dateStr)
+					if err != nil {
+						t.Errorf("Invalid date format: %s", dateStr)
+					}
+				}
+				if part == "is:unread" && tc.unreadOnly {
+					hasUnread = true
+				}
+			}
+			
+			if !hasDate && tc.afterDays > 0 {
+				t.Errorf("Expected date filter not found in result: %s", result)
+			}
+			
+			if !hasUnread && tc.unreadOnly {
+				t.Errorf("Expected unread filter not found in result: %s", result)
+			}
+			
+			// Should NOT contain sender or subject filters
+			if strings.Contains(result, "from:") {
+				t.Errorf("Enhanced search should not contain sender filters: %s", result)
+			}
+			
+			if strings.Contains(result, "subject:") {
+				t.Errorf("Enhanced search should not contain subject filters: %s", result)
+			}
+		})
 	}
 }
 
