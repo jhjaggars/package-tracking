@@ -4,9 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
+)
+
+// LLM Provider constants
+const (
+	LLMProviderOpenAI    = "openai"
+	LLMProviderAnthropic = "anthropic"
+	LLMProviderLocal     = "local"
+	LLMProviderDisabled  = "disabled"
 )
 
 // EmailConfig holds all email processing configuration
@@ -97,6 +104,23 @@ type LLMConfig struct {
 
 // LoadEmailConfig loads email configuration from environment variables
 func LoadEmailConfig() (*EmailConfig, error) {
+	return LoadEmailConfigWithEnvFile("")
+}
+
+// LoadEmailConfigWithEnvFile loads email configuration from environment variables
+// and optionally loads a .env file first
+func LoadEmailConfigWithEnvFile(envFile string) (*EmailConfig, error) {
+	// Load .env file if specified
+	if envFile != "" {
+		if err := LoadEnvFile(envFile); err != nil {
+			return nil, fmt.Errorf("failed to load env file %s: %w", envFile, err)
+		}
+	} else {
+		// Try to load default .env file
+		if err := LoadEnvFile(".env"); err != nil {
+			return nil, fmt.Errorf("failed to load .env file: %w", err)
+		}
+	}
 	config := &EmailConfig{
 		Gmail: GmailConfig{
 			ClientID:       getEnvOrDefault("GMAIL_CLIENT_ID", ""),
@@ -143,7 +167,7 @@ func LoadEmailConfig() (*EmailConfig, error) {
 		},
 		
 		LLM: LLMConfig{
-			Provider:    getEnvOrDefault("LLM_PROVIDER", "disabled"),
+			Provider:    getEnvOrDefault("LLM_PROVIDER", LLMProviderDisabled),
 			Model:       getEnvOrDefault("LLM_MODEL", ""),
 			APIKey:      getEnvOrDefault("LLM_API_KEY", ""),
 			Endpoint:    getEnvOrDefault("LLM_ENDPOINT", ""),
@@ -219,7 +243,7 @@ func (c *EmailConfig) validate() error {
 			return fmt.Errorf("LLM provider must be specified when LLM is enabled")
 		}
 		
-		validProviders := []string{"openai", "anthropic", "local"}
+		validProviders := []string{LLMProviderOpenAI, LLMProviderAnthropic, LLMProviderLocal}
 		isValid := false
 		for _, provider := range validProviders {
 			if c.LLM.Provider == provider {
@@ -231,11 +255,11 @@ func (c *EmailConfig) validate() error {
 			return fmt.Errorf("invalid LLM provider: %s (must be one of: %v)", c.LLM.Provider, validProviders)
 		}
 		
-		if c.LLM.Provider != "local" && c.LLM.APIKey == "" {
+		if c.LLM.Provider != LLMProviderLocal && c.LLM.APIKey == "" {
 			return fmt.Errorf("LLM API key is required for provider: %s", c.LLM.Provider)
 		}
 		
-		if c.LLM.Provider == "local" && c.LLM.Endpoint == "" {
+		if c.LLM.Provider == LLMProviderLocal && c.LLM.Endpoint == "" {
 			return fmt.Errorf("LLM endpoint is required for local provider")
 		}
 		
@@ -252,11 +276,11 @@ func (c *EmailConfig) SetDefaults() {
 	// Set default models if not specified
 	if c.LLM.Enabled && c.LLM.Model == "" {
 		switch c.LLM.Provider {
-		case "openai":
+		case LLMProviderOpenAI:
 			c.LLM.Model = "gpt-4"
-		case "anthropic":
+		case LLMProviderAnthropic:
 			c.LLM.Model = "claude-3-sonnet-20240229"
-		case "local":
+		case LLMProviderLocal:
 			c.LLM.Model = "llama2"
 		}
 	}
@@ -313,29 +337,13 @@ func (c *EmailConfig) IsIMAPConfigured() bool {
 
 // IsLLMEnabled returns true if LLM integration is enabled and configured
 func (c *EmailConfig) IsLLMEnabled() bool {
-	return c.LLM.Enabled && c.LLM.Provider != "disabled"
+	return c.LLM.Enabled && c.LLM.Provider != LLMProviderDisabled
 }
 
 // Helper functions for environment variable parsing
+// Note: getEnvInt64OrDefault and getEnvFloatOrDefault are now available in helpers.go
 
-func getEnvInt64OrDefault(key string, defaultValue int64) int64 {
-	if value := os.Getenv(key); value != "" {
-		if parsed, err := strconv.ParseInt(value, 10, 64); err == nil {
-			return parsed
-		}
-	}
-	return defaultValue
-}
-
-func getEnvFloatOrDefault(key string, defaultValue float64) float64 {
-	if value := os.Getenv(key); value != "" {
-		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
-			return parsed
-		}
-	}
-	return defaultValue
-}
-
+// getEnvSliceOrDefault returns environment variable as string slice or default
 func getEnvSliceOrDefault(key string, defaultValue []string) []string {
 	if value := os.Getenv(key); value != "" {
 		// Simple comma-separated parsing
