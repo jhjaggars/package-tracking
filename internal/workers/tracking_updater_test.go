@@ -673,10 +673,13 @@ func TestTrackingUpdater_DHLRateLimitWarning(t *testing.T) {
 	}
 
 	// DHL API has 250 calls/day limit
-	// 80% threshold should be 200 calls
-	expectedWarningThreshold := 200
+	// DHLRateLimitWarningThreshold (80%) should be 200 calls
+	expectedWarningThreshold := int(250 * DHLRateLimitWarningThreshold / 100)
 	
-	// This is a placeholder test - the actual rate limit warning logic
-	// will be tested when we implement updateDHLShipments
-	t.Logf("DHL rate limit warning threshold would be %d calls (80%% of 250)", expectedWarningThreshold)
+	// Verify the threshold calculation
+	if expectedWarningThreshold != 200 {
+		t.Errorf("Expected warning threshold 200 calls, got %d", expectedWarningThreshold)
+	}
+	
+	t.Logf("DHL rate limit warning threshold: %d calls (%.1f%% of 250)", expectedWarningThreshold, DHLRateLimitWarningThreshold)
 }

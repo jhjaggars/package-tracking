@@ -595,6 +595,11 @@ func (u *TrackingUpdater) handleUpdateError(shipment *database.Shipment, err err
 		"error", err)
 }
 
+const (
+	// DHLRateLimitWarningThreshold is the percentage threshold for rate limit warnings
+	DHLRateLimitWarningThreshold = 80.0
+)
+
 // checkDHLRateLimitWarning checks DHL API rate limits and logs warnings when approaching limits
 func (u *TrackingUpdater) checkDHLRateLimitWarning(shipments []database.Shipment) {
 	// Get DHL client to check rate limits
@@ -622,15 +627,16 @@ func (u *TrackingUpdater) checkDHLRateLimitWarning(shipments []database.Shipment
 	used := limit - remaining
 	usagePercent := float64(used) / float64(limit) * 100
 
-	// Log warning if usage is at or above 80%
-	if usagePercent >= 80.0 {
+	// Log warning if usage is at or above threshold
+	if usagePercent >= DHLRateLimitWarningThreshold {
 		u.logger.Warn("DHL API rate limit approaching",
 			"usage_percent", fmt.Sprintf("%.1f%%", usagePercent),
 			"used", used,
 			"limit", limit,
 			"remaining", remaining,
 			"reset_time", rateLimit.ResetTime,
-			"pending_shipments", len(shipments))
+			"pending_shipments", len(shipments),
+			"recommendation", "Consider reducing update frequency or using web scraping fallback")
 		
 		// If we're very close to the limit, log additional warning
 		if remaining < len(shipments) {
