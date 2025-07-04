@@ -1,0 +1,65 @@
+# Email Tracker Configuration (YAML)
+# Copy this file to email-tracker.yaml and configure as needed
+
+# Gmail API Configuration
+gmail:
+  # OAuth2 Settings (recommended)
+  client_id: ""           # your_gmail_client_id
+  client_secret: ""       # your_gmail_client_secret  
+  refresh_token: ""       # your_gmail_refresh_token
+  access_token: ""        # Optional: cached access token
+  token_file: "./gmail-token.json"
+  
+  # IMAP Fallback Settings (alternative to OAuth2)
+  username: ""            # your_email@gmail.com
+  app_password: ""        # your_gmail_app_password
+  
+  # Request Settings
+  max_results: 100
+  request_timeout: "30s"
+  rate_limit_delay: "100ms"
+
+# Email Search Configuration
+search:
+  query: ""               # Custom search query (empty = use default)
+  after_days: 30          # Only process emails from last N days
+  unread_only: false      # Only process unread emails
+  max_results: 100        # Maximum emails to process per search
+  include_labels: []      # Include emails with these labels
+  exclude_labels: []      # Exclude emails with these labels
+  custom_carriers: []     # Additional carrier domains to search
+
+# Email Processing Configuration
+processing:
+  check_interval: "5m"           # How often to check for new emails
+  max_emails_per_run: 50         # Maximum emails to process per run
+  dry_run: false                 # Extract tracking numbers without creating shipments
+  state_db_path: "./email-state.db"
+  processing_timeout: "10m"
+  
+  # Parsing Configuration
+  min_confidence: 0.5            # Minimum confidence for tracking number extraction
+  max_candidates: 10             # Maximum tracking number candidates per email
+  use_hybrid_validation: true    # Use both regex and LLM validation
+  debug_mode: false              # Enable debug logging
+
+# API Client Configuration
+api:
+  url: "http://localhost:8080"   # Package tracking API endpoint
+  timeout: "30s"
+  retry_count: 3
+  retry_delay: "1s"
+  user_agent: "email-tracker/1.0"
+  backoff_factor: 2.0
+
+# LLM Integration Configuration
+llm:
+  provider: "disabled"           # "openai", "anthropic", "local", or "disabled"
+  model: ""                      # Model name (auto-selected based on provider if empty)
+  api_key: ""                    # API key for hosted services
+  endpoint: ""                   # Endpoint for local LLMs
+  max_tokens: 1000               # Response length limit
+  temperature: 0.1               # Creativity vs consistency (0.0-1.0)
+  timeout: "30s"                 # Request timeout
+  retry_count: 2                 # Number of retries for failed requests
+  enabled: false                 # Enable/disable LLM parsing
