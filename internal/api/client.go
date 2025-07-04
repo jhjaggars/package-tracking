@@ -367,3 +367,10 @@ func (c *Client) GetStats() *Stats {
 	// TODO: Implement actual statistics tracking
 	return &Stats{}
 }
+
+// Close closes the client and releases resources
+func (c *Client) Close() error {
+	// For HTTP clients, there's typically nothing to close
+	// This method is provided for interface compatibility
+	return nil
+}
