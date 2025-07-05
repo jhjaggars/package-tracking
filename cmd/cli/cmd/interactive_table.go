@@ -28,6 +28,8 @@ type KeyMap struct {
 	Events   key.Binding
 	Help     key.Binding
 	Quit     key.Binding
+	Confirm  key.Binding
+	Cancel   key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings
@@ -69,25 +71,39 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
 		),
+		Confirm: key.NewBinding(
+			key.WithKeys("y", "Y"),
+			key.WithHelp("y", "confirm"),
+		),
+		Cancel: key.NewBinding(
+			key.WithKeys("n", "N", "esc"),
+			key.WithHelp("n/esc", "cancel"),
+		),
 	}
 }
 
 // InteractiveTable represents the interactive table model
 type InteractiveTable struct {
-	table       table.Model
-	shipments   []database.Shipment
-	client      *cliapi.Client
-	formatter   *cliapi.OutputFormatter
-	fields      []string
-	keys        KeyMap
-	loading     bool
-	spinner     spinner.Model
-	err         error
-	message     string
-	showHelp    bool
-	quitting    bool
-	config      *cliapi.Config
-	useColor    bool
+	table             table.Model
+	shipments         []database.Shipment
+	client            *cliapi.Client
+	formatter         *cliapi.OutputFormatter
+	fields            []string
+	keys              KeyMap
+	loading           bool
+	spinner           spinner.Model
+	err               error
+	message           string
+	showHelp          bool
+	quitting          bool
+	config            *cliapi.Config
+	useColor          bool
+	showDeleteConfirm bool
+	deleteTarget      int // ID of shipment to delete
+	showEvents        bool
+	eventsData        []database.TrackingEvent
+	eventsShipmentID  int
+	eventsScroll      int
 }
 
 // NewInteractiveTable creates a new interactive table
@@ -168,6 +184,51 @@ func (m InteractiveTable) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle confirmation dialog first
+		if m.showDeleteConfirm {
+			switch {
+			case key.Matches(msg, m.keys.Confirm):
+				return m.confirmDelete()
+			case key.Matches(msg, m.keys.Cancel):
+				m.showDeleteConfirm = false
+				m.deleteTarget = 0
+				m.message = "Delete cancelled"
+				return m, nil
+			}
+			// Don't process other keys when in confirmation mode
+			return m, nil
+		}
+
+		// Handle events view navigation
+		if m.showEvents {
+			switch {
+			case key.Matches(msg, m.keys.Up):
+				if m.eventsScroll > 0 {
+					m.eventsScroll--
+				}
+				return m, nil
+			case key.Matches(msg, m.keys.Down):
+				maxScroll := len(m.eventsData) - 10 // Show 10 events at a time
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				if m.eventsScroll < maxScroll {
+					m.eventsScroll++
+				}
+				return m, nil
+			case key.Matches(msg, m.keys.Cancel), key.Matches(msg, m.keys.Quit):
+				// Close events view
+				m.showEvents = false
+				m.eventsData = nil
+				m.eventsShipmentID = 0
+				m.eventsScroll = 0
+				m.message = ""
+				return m, nil
+			}
+			// Don't process other keys when in events view
+			return m, nil
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			m.quitting = true
@@ -217,6 +278,34 @@ func (m InteractiveTable) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case deleteCompleteMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			m.message = fmt.Sprintf("Error deleting shipment: %v", msg.err)
+		} else {
+			// Remove the deleted shipment from the table
+			m = m.removeShipmentFromTable(msg.shipmentID)
+			m.message = "Shipment deleted successfully"
+		}
+		return m, nil
+
+	case eventsCompleteMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			m.message = fmt.Sprintf("Error fetching events: %v", msg.err)
+		} else {
+			// Show the events view
+			m.showEvents = true
+			m.eventsData = msg.events
+			m.eventsShipmentID = msg.shipmentID
+			m.eventsScroll = 0
+			m.message = ""
+			m.err = nil
+		}
+		return m, nil
+
 	case spinner.TickMsg:
 		if m.loading {
 			m.spinner, cmd = m.spinner.Update(msg)
@@ -246,9 +335,26 @@ func (m InteractiveTable) View() string {
 		b.WriteString(fmt.Sprintf("%s Loading...\n", m.spinner.View()))
 	}
 
-	// Show table
-	b.WriteString(m.table.View())
-	b.WriteString("\n")
+	// Show events view if active
+	if m.showEvents {
+		b.WriteString(m.eventsView())
+		b.WriteString("\n")
+	} else {
+		// Show table
+		b.WriteString(m.table.View())
+		b.WriteString("\n")
+	}
+
+	// Show confirmation dialog if needed
+	if m.showDeleteConfirm {
+		confirmMsg := fmt.Sprintf("Delete shipment ID %d? (y/N): ", m.deleteTarget)
+		if m.useColor {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render(confirmMsg))
+		} else {
+			b.WriteString(confirmMsg)
+		}
+		b.WriteString("\n")
+	}
 
 	// Show message if any
 	if m.message != "" {
@@ -292,6 +398,10 @@ func (m InteractiveTable) helpView() string {
 
 // statusLine returns the status line
 func (m InteractiveTable) statusLine() string {
+	if m.showEvents {
+		return "Events View | Press q/esc to return to shipments list"
+	}
+	
 	if len(m.shipments) == 0 {
 		return "No shipments found"
 	}
@@ -375,6 +485,19 @@ func getFieldValue(shipment database.Shipment, field string) string {
 type refreshCompleteMsg struct {
 	response *cliapi.RefreshResponse
 	err      error
+}
+
+// deleteCompleteMsg is sent when a delete operation completes
+type deleteCompleteMsg struct {
+	shipmentID int
+	err        error
+}
+
+// eventsCompleteMsg is sent when an events fetch operation completes
+type eventsCompleteMsg struct {
+	shipmentID int
+	events     []database.TrackingEvent
+	err        error
 }
 
 // handleRefresh handles the refresh operation
@@ -479,13 +602,14 @@ func (m InteractiveTable) handleEvents() (InteractiveTable, tea.Cmd) {
 	}
 
 	shipment := m.shipments[selected]
-	m.message = fmt.Sprintf("Fetching events for shipment %d...", shipment.ID)
-	
-	// Note: This is a simplified implementation. In a real application,
-	// you would fetch events from the API and display them properly.
-	// For now, we'll just show a placeholder message.
-	m.message = fmt.Sprintf("Events view for shipment %d would be displayed here", shipment.ID)
-	return m, nil
+	m.loading = true
+	m.message = ""
+	m.err = nil
+
+	return m, tea.Batch(
+		m.spinner.Tick,
+		m.fetchEvents(shipment.ID),
+	)
 }
 
 // handleUpdateDescription handles updating the shipment description
@@ -521,11 +645,222 @@ func (m InteractiveTable) handleDelete() (InteractiveTable, tea.Cmd) {
 		return m, nil
 	}
 
-	// Note: This is a simplified implementation. In a real application,
-	// you would show a confirmation dialog.
-	// For now, we'll just show a placeholder message.
-	m.message = "Delete functionality not yet implemented"
+	shipment := m.shipments[selected]
+	m.showDeleteConfirm = true
+	m.deleteTarget = shipment.ID
+	m.message = ""
+	m.err = nil
+
 	return m, nil
+}
+
+// confirmDelete executes the delete operation after confirmation
+func (m InteractiveTable) confirmDelete() (InteractiveTable, tea.Cmd) {
+	m.showDeleteConfirm = false
+	m.loading = true
+	m.message = ""
+	m.err = nil
+
+	return m, tea.Batch(
+		m.spinner.Tick,
+		m.deleteShipment(m.deleteTarget),
+	)
+}
+
+// deleteShipment deletes a specific shipment
+func (m InteractiveTable) deleteShipment(id int) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.DeleteShipment(id)
+		return deleteCompleteMsg{shipmentID: id, err: err}
+	}
+}
+
+// removeShipmentFromTable removes a shipment from the table after successful deletion
+func (m InteractiveTable) removeShipmentFromTable(shipmentID int) InteractiveTable {
+	// Find the shipment to remove
+	newShipments := make([]database.Shipment, 0, len(m.shipments)-1)
+	for _, shipment := range m.shipments {
+		if shipment.ID != shipmentID {
+			newShipments = append(newShipments, shipment)
+		}
+	}
+
+	// Update the shipments slice
+	m.shipments = newShipments
+
+	// Recreate table rows
+	rows := make([]table.Row, len(m.shipments))
+	for i, shipment := range m.shipments {
+		rows[i] = shipmentToRow(shipment, m.fields)
+	}
+
+	// Update the table
+	m.table.SetRows(rows)
+
+	// Adjust cursor if necessary
+	if len(m.shipments) > 0 {
+		cursor := m.table.Cursor()
+		if cursor >= len(m.shipments) {
+			// Move cursor to the last item if it's beyond the new range
+			for cursor >= len(m.shipments) && cursor > 0 {
+				cursor--
+			}
+			// We can't directly set cursor, so we'll let the natural navigation handle it
+		}
+	}
+
+	return m
+}
+
+// fetchEvents fetches events for a specific shipment
+func (m InteractiveTable) fetchEvents(shipmentID int) tea.Cmd {
+	return func() tea.Msg {
+		events, err := m.client.GetEvents(shipmentID)
+		return eventsCompleteMsg{
+			shipmentID: shipmentID,
+			events:     events,
+			err:        err,
+		}
+	}
+}
+
+// eventsView renders the events view
+func (m InteractiveTable) eventsView() string {
+	var b strings.Builder
+	
+	// Find shipment for header
+	var shipmentDesc string
+	for _, shipment := range m.shipments {
+		if shipment.ID == m.eventsShipmentID {
+			shipmentDesc = fmt.Sprintf("ID %d - %s (%s)", shipment.ID, shipment.TrackingNumber, shipment.Carrier)
+			break
+		}
+	}
+	
+	// Header
+	title := fmt.Sprintf("Tracking Events for %s", shipmentDesc)
+	if m.useColor {
+		titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+		b.WriteString(titleStyle.Render(title))
+	} else {
+		b.WriteString(title)
+	}
+	b.WriteString("\n")
+	
+	// Instructions
+	instructions := "Use ↑/↓ to scroll, q/esc to close"
+	if m.useColor {
+		instrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+		b.WriteString(instrStyle.Render(instructions))
+	} else {
+		b.WriteString(instructions)
+	}
+	b.WriteString("\n\n")
+	
+	if len(m.eventsData) == 0 {
+		b.WriteString("No tracking events found.\n")
+		return b.String()
+	}
+	
+	// Table header
+	header := "TIMESTAMP         LOCATION              STATUS        DESCRIPTION"
+	if m.useColor {
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("240"))
+		b.WriteString(headerStyle.Render(header))
+	} else {
+		b.WriteString(header)
+	}
+	b.WriteString("\n")
+	
+	// Add separator line
+	separator := strings.Repeat("-", len(header))
+	if m.useColor {
+		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+		b.WriteString(sepStyle.Render(separator))
+	} else {
+		b.WriteString(separator)
+	}
+	b.WriteString("\n")
+	
+	// Show events with scrolling
+	maxVisible := 10
+	start := m.eventsScroll
+	end := start + maxVisible
+	if end > len(m.eventsData) {
+		end = len(m.eventsData)
+	}
+	
+	for i := start; i < end; i++ {
+		event := m.eventsData[i]
+		
+		// Format timestamp
+		timestamp := event.Timestamp.Format("2006-01-02 15:04")
+		
+		// Truncate location and description
+		location := truncateString(event.Location, 20)
+		description := truncateString(event.Description, 40)
+		
+		// Format status with color
+		status := event.Status
+		if m.useColor {
+			status = m.getStatusColorForEvent(event.Status)
+		}
+		
+		// Create row
+		row := fmt.Sprintf("%-17s %-20s %-12s %s",
+			timestamp,
+			location,
+			status,
+			description)
+		
+		b.WriteString(row)
+		b.WriteString("\n")
+	}
+	
+	// Show scroll indicator if there are more events
+	if len(m.eventsData) > maxVisible {
+		scrollInfo := fmt.Sprintf("\nShowing %d-%d of %d events", start+1, end, len(m.eventsData))
+		if m.useColor {
+			scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+			b.WriteString(scrollStyle.Render(scrollInfo))
+		} else {
+			b.WriteString(scrollInfo)
+		}
+	}
+	
+	return b.String()
+}
+
+// truncateString truncates a string to the specified length with ellipsis
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// getStatusColorForEvent returns colored status text
+func (m InteractiveTable) getStatusColorForEvent(status string) string {
+	if m.useColor {
+		var color lipgloss.Color
+		switch strings.ToLower(status) {
+		case "delivered":
+			color = lipgloss.Color("82") // Green
+		case "in transit", "in-transit", "transit":
+			color = lipgloss.Color("226") // Yellow
+		case "pending", "pre_ship":
+			color = lipgloss.Color("75") // Blue
+		case "failed", "error", "exception":
+			color = lipgloss.Color("196") // Red
+		default:
+			color = lipgloss.Color("244") // Gray
+		}
+		return lipgloss.NewStyle().Foreground(color).Render(status)
+	}
+	return status
 }
 
 // runInteractiveTable runs the interactive table
