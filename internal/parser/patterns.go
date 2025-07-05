@@ -383,6 +383,24 @@ func (pm *PatternManager) initAmazonPatterns() {
 			Context:     "table",
 			Description: "Amazon Logistics tracking in HTML table",
 		},
+		// Amazon internal reference codes (only when in clear Amazon context)
+		{
+			Regex:       regexp.MustCompile(`(?i)amazon.*?(?:reference|id|code)\s*:?\s*([A-Za-z0-9]{6,20})`),
+			Carrier:     "amazon",
+			Format:      "amazon_contextual_reference",
+			Confidence:  0.7,
+			Context:     "contextual",
+			Description: "Amazon reference code in Amazon context",
+		},
+		// Specific Amazon shipment reference patterns
+		{
+			Regex:       regexp.MustCompile(`(?i)amazon\s*(?:shipment|package|order)\s*(?:reference|id|code|number)\s*:?\s*([A-Za-z0-9]{6,20})`),
+			Carrier:     "amazon",
+			Format:      "amazon_shipment_reference",
+			Confidence:  0.8,
+			Context:     "labeled",
+			Description: "Amazon shipment reference with label",
+		},
 	}
 }
 
@@ -401,7 +419,7 @@ func (pm *PatternManager) initGenericPatterns() {
 		{
 			Regex:       regexp.MustCompile(`(?i)shipment\s*(?:id|number)\s*:?\s*([A-Z0-9]{10,25})`),
 			Carrier:     "unknown",
-			Format:      "generic_shipment", 
+			Format:      "generic_shipment",
 			Confidence:  0.5,
 			Context:     "labeled",
 			Description: "Generic shipment number with explicit label",
@@ -422,7 +440,7 @@ func (pm *PatternManager) initGenericPatterns() {
 // ExtractForCarrier extracts tracking candidates for a specific carrier
 func (pm *PatternManager) ExtractForCarrier(text, carrier string) []email.TrackingCandidate {
 	var patterns []*PatternEntry
-	
+
 	switch carrier {
 	case "ups":
 		patterns = pm.upsPatterns
@@ -437,7 +455,7 @@ func (pm *PatternManager) ExtractForCarrier(text, carrier string) []email.Tracki
 	default:
 		return nil
 	}
-	
+
 	return pm.extractWithPatterns(text, patterns)
 }
 
@@ -449,15 +467,15 @@ func (pm *PatternManager) ExtractGeneric(text string) []email.TrackingCandidate 
 // extractWithPatterns applies a set of patterns to extract candidates
 func (pm *PatternManager) extractWithPatterns(text string, patterns []*PatternEntry) []email.TrackingCandidate {
 	var candidates []email.TrackingCandidate
-	
+
 	for _, pattern := range patterns {
 		matches := pattern.Regex.FindAllStringSubmatch(text, -1)
 		indices := pattern.Regex.FindAllStringIndex(text, -1)
-		
+
 		for i, match := range matches {
 			var trackingNumber string
 			var position int
-			
+
 			if len(match) > 1 {
 				// Use captured group
 				trackingNumber = strings.TrimSpace(match[1])
@@ -468,14 +486,14 @@ func (pm *PatternManager) extractWithPatterns(text string, patterns []*PatternEn
 				trackingNumber = strings.TrimSpace(match[0])
 				position = indices[i][0]
 			}
-			
+
 			if trackingNumber == "" {
 				continue
 			}
-			
+
 			// Extract context around the match
 			context := pm.extractContext(text, position, 50)
-			
+
 			candidate := email.TrackingCandidate{
 				Text:       trackingNumber,
 				Position:   position,
@@ -484,11 +502,11 @@ func (pm *PatternManager) extractWithPatterns(text string, patterns []*PatternEn
 				Confidence: pattern.Confidence,
 				Method:     pattern.Context,
 			}
-			
+
 			candidates = append(candidates, candidate)
 		}
 	}
-	
+
 	return candidates
 }
 
@@ -498,22 +516,22 @@ func (pm *PatternManager) extractContext(text string, position, radius int) stri
 	if start < 0 {
 		start = 0
 	}
-	
+
 	end := position + radius
 	if end > len(text) {
 		end = len(text)
 	}
-	
+
 	context := text[start:end]
-	
+
 	// Clean up context
 	context = strings.ReplaceAll(context, "\n", " ")
 	context = strings.ReplaceAll(context, "\t", " ")
-	
+
 	// Normalize whitespace
 	re := regexp.MustCompile(`\s+`)
 	context = re.ReplaceAllString(context, " ")
-	
+
 	return strings.TrimSpace(context)
 }
 
