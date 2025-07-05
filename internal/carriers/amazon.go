@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// Pre-compiled regular expressions for better performance
+var (
+	letterRegex = regexp.MustCompile(`[A-Za-z]`)
+	numberRegex = regexp.MustCompile(`\d`)
+)
+
 // AmazonClient implements the Client interface for Amazon shipments
 // Since Amazon doesn't provide public APIs, this client handles:
 // 1. Amazon order numbers (###-#######-#######)
@@ -39,22 +45,27 @@ func (c *AmazonClient) ValidateTrackingNumber(trackingNumber string) bool {
 	if trackingNumber == "" {
 		return false
 	}
-	
+
 	// Clean the tracking number
 	cleaned := strings.ReplaceAll(trackingNumber, " ", "")
 	cleaned = strings.ReplaceAll(cleaned, "-", "")
-	
+
 	// Check for Amazon order number format: ###-#######-#######
 	// After cleaning: 17 digits total
 	if c.isAmazonOrderNumber(cleaned) {
 		return true
 	}
-	
+
 	// Check for Amazon Logistics tracking number: TBA############
 	if c.isAmazonLogisticsNumber(trackingNumber) {
 		return true
 	}
-	
+
+	// Check for Amazon internal reference codes (flexible validation)
+	if c.isAmazonInternalReference(trackingNumber) {
+		return true
+	}
+
 	return false
 }
 
@@ -64,12 +75,12 @@ func (c *AmazonClient) isAmazonOrderNumber(cleaned string) bool {
 	if len(cleaned) != 17 {
 		return false
 	}
-	
+
 	// Must be all digits
 	if matched, _ := regexp.MatchString(`^\d{17}$`, cleaned); !matched {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -80,8 +91,71 @@ func (c *AmazonClient) isAmazonLogisticsNumber(trackingNumber string) bool {
 	if matched, _ := regexp.MatchString(`^(?i)TBA\d{12}$`, trackingNumber); matched {
 		return true
 	}
-	
+
 	return false
+}
+
+// isAmazonInternalReference checks if the string is a valid Amazon internal reference code
+func (c *AmazonClient) isAmazonInternalReference(trackingNumber string) bool {
+	// Amazon internal reference codes can have various formats:
+	// 1. Mixed alphanumeric codes (e.g., "BqPz3RXRS")
+	// 2. Amazon internal shipment IDs
+	// 3. Amazon fulfillment center codes
+
+	// Length constraints: Amazon internal codes are typically 6-20 characters
+	if len(trackingNumber) < 6 || len(trackingNumber) > 20 {
+		return false
+	}
+
+	// Must contain at least one letter and one number (mixed alphanumeric)
+	hasLetter := letterRegex.MatchString(trackingNumber)
+	hasNumber := numberRegex.MatchString(trackingNumber)
+
+	if !hasLetter || !hasNumber {
+		return false
+	}
+
+	// Must be alphanumeric only (no special characters except dashes)
+	if matched, _ := regexp.MatchString(`^[A-Za-z0-9-]+$`, trackingNumber); !matched {
+		return false
+	}
+
+	// Exclude known carrier patterns that should not be treated as Amazon internal codes
+	knownCarrierPatterns := []string{
+		`^1Z[A-Z0-9]{6}\d{2}\d{7}$`, // UPS format
+		`^94\d{20}$`,                // USPS format
+		`^\d{12}$`,                  // FedEx format
+		`^\d{10,11}$`,               // DHL format
+		`^TBA\d{12}$`,               // Amazon Logistics (handled separately)
+		`^\d{3}-\d{7}-\d{7}$`,       // Amazon order format (handled separately)
+		`^[A-Z]{3}\d{12}$`,          // Generic carrier format like ABC123456789012
+		`^TBA\d{1,11}$`,             // Incomplete TBA formats (too short)
+	}
+
+	for _, pattern := range knownCarrierPatterns {
+		if matched, _ := regexp.MatchString(pattern, trackingNumber); matched {
+			return false
+		}
+	}
+
+	// Exclude common false positives like email addresses, URLs, etc.
+	falsePositives := []string{
+		`@`, `\.com`, `\.org`, `\.net`, `http`, `www\.`, `mailto:`,
+		`^(19|20)\d{2}$`,                                     // Years
+		`^(mon|tue|wed|thu|fri|sat|sun)`,                     // Days
+		`^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)`, // Months
+		`^invalid`,                                           // Obviously invalid patterns
+		`^test\d+$`,                                          // Test patterns
+		`^fake\d+$`,                                          // Fake patterns
+		`^example`,                                           // Example patterns
+	}
+	for _, pattern := range falsePositives {
+		if matched, _ := regexp.MatchString(pattern, strings.ToLower(trackingNumber)); matched {
+			return false
+		}
+	}
+
+	return true
 }
 
 // GetRateLimit returns current rate limit information
@@ -101,10 +175,10 @@ func (c *AmazonClient) Track(ctx context.Context, req *TrackingRequest) (*Tracki
 			Errors:  []CarrierError{},
 		}, nil
 	}
-	
+
 	var results []TrackingInfo
 	var errors []CarrierError
-	
+
 	for _, trackingNumber := range req.TrackingNumbers {
 		if !c.ValidateTrackingNumber(trackingNumber) {
 			errors = append(errors, CarrierError{
@@ -116,12 +190,12 @@ func (c *AmazonClient) Track(ctx context.Context, req *TrackingRequest) (*Tracki
 			})
 			continue
 		}
-		
+
 		// Create basic tracking info
 		trackingInfo := c.createBasicTrackingInfo(trackingNumber)
 		results = append(results, trackingInfo)
 	}
-	
+
 	return &TrackingResponse{
 		Results:   results,
 		Errors:    errors,
@@ -132,24 +206,34 @@ func (c *AmazonClient) Track(ctx context.Context, req *TrackingRequest) (*Tracki
 // createBasicTrackingInfo creates a basic tracking info structure for Amazon shipments
 func (c *AmazonClient) createBasicTrackingInfo(trackingNumber string) TrackingInfo {
 	now := time.Now()
-	
-	// Determine if this is Amazon Logistics or an order number
-	isAMZL := c.isAmazonLogisticsNumber(trackingNumber)
-	
-	serviceType := "Amazon Standard"
-	if isAMZL {
+
+	// Determine the type of Amazon tracking number
+	var serviceType string
+	var description string
+
+	if c.isAmazonLogisticsNumber(trackingNumber) {
 		serviceType = "Amazon Logistics"
+		description = "Amazon Logistics shipment created"
+	} else if c.isAmazonOrderNumber(strings.ReplaceAll(strings.ReplaceAll(trackingNumber, " ", ""), "-", "")) {
+		serviceType = "Amazon Standard"
+		description = "Amazon order received"
+	} else if c.isAmazonInternalReference(trackingNumber) {
+		serviceType = "Amazon Internal"
+		description = "Amazon shipment reference created"
+	} else {
+		serviceType = "Amazon Standard"
+		description = "Amazon order received"
 	}
-	
+
 	// Create initial tracking event
 	event := TrackingEvent{
 		Timestamp:   now,
 		Status:      StatusPreShip,
 		Location:    "",
-		Description: "Amazon order received",
+		Description: description,
 		Details:     "Tracking information will be updated when shipment is processed",
 	}
-	
+
 	return TrackingInfo{
 		TrackingNumber:    trackingNumber,
 		Carrier:           "amazon",
@@ -173,18 +257,18 @@ func (c *AmazonClient) DelegateToCarrier(ctx context.Context, carrier string, tr
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Track using the delegated carrier
 	req := &TrackingRequest{
 		TrackingNumbers: []string{trackingNumber},
 		Carrier:         carrier,
 	}
-	
+
 	resp, err := delegatedClient.Track(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(resp.Results) == 0 {
 		return nil, &CarrierError{
 			Carrier:   "amazon",
@@ -194,7 +278,7 @@ func (c *AmazonClient) DelegateToCarrier(ctx context.Context, carrier string, tr
 			RateLimit: false,
 		}
 	}
-	
+
 	// Return the first result from the delegated carrier
 	// The calling code will update the Amazon shipment with this information
 	result := resp.Results[0]

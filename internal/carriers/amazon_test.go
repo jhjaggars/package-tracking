@@ -305,3 +305,230 @@ func TestNewAmazonClient(t *testing.T) {
 		t.Errorf("Expected carrier name 'amazon', got '%s'", client.GetCarrierName())
 	}
 }
+
+func TestAmazonClient_ValidateInternalReference(t *testing.T) {
+	client := NewAmazonClient(NewClientFactory())
+	
+	tests := []struct {
+		name           string
+		trackingNumber string
+		want           bool
+		description    string
+	}{
+		// Valid Amazon internal reference codes
+		{
+			name:           "Original failing case - BqPz3RXRS",
+			trackingNumber: "BqPz3RXRS",
+			want:           true,
+			description:    "The actual tracking code that was failing in production",
+		},
+		{
+			name:           "Mixed alphanumeric 8 chars",
+			trackingNumber: "AMZ123AB",
+			want:           true,
+			description:    "Short mixed alphanumeric code",
+		},
+		{
+			name:           "Mixed alphanumeric 12 chars",
+			trackingNumber: "REF456DEF789",
+			want:           true,
+			description:    "Medium length mixed code",
+		},
+		{
+			name:           "Mixed alphanumeric 16 chars",
+			trackingNumber: "SHIP789GHI012JKL",
+			want:           true,
+			description:    "Long mixed code",
+		},
+		{
+			name:           "Amazon warehouse code style",
+			trackingNumber: "FBA7X8Y9Z0AB",
+			want:           true,
+			description:    "Warehouse/fulfillment style code",
+		},
+		{
+			name:           "With dashes",
+			trackingNumber: "AMZ-123-DEF",
+			want:           true,
+			description:    "Internal code with dashes",
+		},
+		
+		// Boundary conditions - valid (6-20 characters)
+		{
+			name:           "Exactly 6 characters",
+			trackingNumber: "AMZ123",
+			want:           true,
+			description:    "Minimum length boundary",
+		},
+		{
+			name:           "Exactly 20 characters",
+			trackingNumber: "AMAZON12345REFERENCE",
+			want:           true,
+			description:    "Maximum length boundary",
+		},
+		
+		// Boundary conditions - invalid
+		{
+			name:           "Too short - 5 characters",
+			trackingNumber: "AMZ12",
+			want:           false,
+			description:    "Below minimum length",
+		},
+		{
+			name:           "Too long - 21 characters",
+			trackingNumber: "AMAZON123456REFERENCES",
+			want:           false,
+			description:    "Above maximum length",
+		},
+		
+		// Invalid formats
+		{
+			name:           "Only letters",
+			trackingNumber: "AMAZONCODE",
+			want:           false,
+			description:    "Must contain at least one number",
+		},
+		{
+			name:           "Only numbers",
+			trackingNumber: "123456789",
+			want:           false,
+			description:    "Must contain at least one letter",
+		},
+		{
+			name:           "Contains special characters",
+			trackingNumber: "AMZ123@DEF",
+			want:           false,
+			description:    "Special characters not allowed",
+		},
+		{
+			name:           "Contains spaces",
+			trackingNumber: "AMZ 123 DEF",
+			want:           false,
+			description:    "Spaces not allowed in internal references",
+		},
+		
+		// False positive filtering
+		{
+			name:           "Invalid prefix",
+			trackingNumber: "INVALID123",
+			want:           false,
+			description:    "Should filter obvious invalid patterns",
+		},
+		{
+			name:           "Test pattern",
+			trackingNumber: "test123",
+			want:           false,
+			description:    "Should filter test patterns",
+		},
+		{
+			name:           "Fake pattern",
+			trackingNumber: "fake456",
+			want:           false,
+			description:    "Should filter fake patterns",
+		},
+		{
+			name:           "Example pattern",
+			trackingNumber: "example789",
+			want:           false,
+			description:    "Should filter example patterns",
+		},
+		{
+			name:           "Year pattern",
+			trackingNumber: "2024",
+			want:           false,
+			description:    "Should filter year patterns",
+		},
+		{
+			name:           "Day pattern",
+			trackingNumber: "monday123",
+			want:           false,
+			description:    "Should filter day patterns",
+		},
+		{
+			name:           "Month pattern",
+			trackingNumber: "january456",
+			want:           false,
+			description:    "Should filter month patterns",
+		},
+		
+		// Known carrier patterns that should be excluded
+		{
+			name:           "UPS tracking number",
+			trackingNumber: "1Z999AA1234567890",
+			want:           false,
+			description:    "Should not validate UPS numbers as Amazon internal",
+		},
+		{
+			name:           "USPS tracking number",
+			trackingNumber: "94001234567890123456",
+			want:           false,
+			description:    "Should not validate USPS numbers as Amazon internal",
+		},
+		{
+			name:           "FedEx tracking number",
+			trackingNumber: "123456789012",
+			want:           false,
+			description:    "Should not validate FedEx numbers as Amazon internal",
+		},
+		{
+			name:           "DHL tracking number",
+			trackingNumber: "1234567890",
+			want:           false,
+			description:    "Should not validate DHL numbers as Amazon internal",
+		},
+		{
+			name:           "Amazon Logistics number",
+			trackingNumber: "TBA123456789012",
+			want:           true,
+			description:    "TBA numbers are valid Amazon tracking numbers",
+		},
+		{
+			name:           "Amazon order number format",
+			trackingNumber: "11312345671234567",
+			want:           true,
+			description:    "Order numbers are valid Amazon tracking numbers",
+		},
+		{
+			name:           "Generic carrier format",
+			trackingNumber: "ABC123456789012",
+			want:           false,
+			description:    "Should filter generic 3-letter + 12-digit patterns",
+		},
+		{
+			name:           "Short TBA format",
+			trackingNumber: "TBA12345",
+			want:           false,
+			description:    "Should filter incomplete TBA formats",
+		},
+		
+		// Edge cases
+		{
+			name:           "Empty string",
+			trackingNumber: "",
+			want:           false,
+			description:    "Empty strings should be rejected",
+		},
+		{
+			name:           "Whitespace only",
+			trackingNumber: "   ",
+			want:           false,
+			description:    "Whitespace-only strings should be rejected",
+		},
+		{
+			name:           "Mixed case valid",
+			trackingNumber: "AmZ123DeFgHi",
+			want:           true,
+			description:    "Mixed case should be valid",
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := client.ValidateTrackingNumber(tt.trackingNumber)
+			if got != tt.want {
+				t.Errorf("ValidateTrackingNumber(%q) = %v, want %v\nDescription: %s", 
+					tt.trackingNumber, got, tt.want, tt.description)
+			}
+		})
+	}
+}
