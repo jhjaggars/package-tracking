@@ -23,6 +23,10 @@ type Shipment struct {
 	AutoRefreshEnabled  bool       `json:"auto_refresh_enabled"`
 	AutoRefreshError    *string    `json:"auto_refresh_error,omitempty"`
 	AutoRefreshFailCount int       `json:"auto_refresh_fail_count"`
+	AmazonOrderNumber       *string `json:"amazon_order_number,omitempty"`
+	DelegatedCarrier        *string `json:"delegated_carrier,omitempty"`
+	DelegatedTrackingNumber *string `json:"delegated_tracking_number,omitempty"`
+	IsAmazonLogistics       bool    `json:"is_amazon_logistics"`
 }
 
 type TrackingEvent struct {
@@ -58,7 +62,8 @@ func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 			  created_at, updated_at, expected_delivery, is_delivered,
 			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
 			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
-			  auto_refresh_fail_count 
+			  auto_refresh_fail_count, amazon_order_number, delegated_carrier,
+			  delegated_tracking_number, is_amazon_logistics 
 			  FROM shipments ORDER BY created_at DESC`
 	
 	rows, err := s.db.Query(query)
@@ -76,7 +81,9 @@ func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 			&shipment.LastManualRefresh, &shipment.ManualRefreshCount,
 			&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
 			&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
-			&shipment.AutoRefreshFailCount)
+			&shipment.AutoRefreshFailCount, &shipment.AmazonOrderNumber,
+			&shipment.DelegatedCarrier, &shipment.DelegatedTrackingNumber,
+			&shipment.IsAmazonLogistics)
 		if err != nil {
 			return nil, err
 		}
@@ -92,7 +99,8 @@ func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 			  created_at, updated_at, expected_delivery, is_delivered,
 			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
 			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
-			  auto_refresh_fail_count 
+			  auto_refresh_fail_count, amazon_order_number, delegated_carrier,
+			  delegated_tracking_number, is_amazon_logistics 
 			  FROM shipments WHERE is_delivered = false AND carrier = ? ORDER BY created_at DESC`
 	
 	rows, err := s.db.Query(query, carrier)
@@ -110,7 +118,9 @@ func (s *ShipmentStore) GetActiveByCarrier(carrier string) ([]Shipment, error) {
 			&shipment.LastManualRefresh, &shipment.ManualRefreshCount,
 			&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
 			&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
-			&shipment.AutoRefreshFailCount)
+			&shipment.AutoRefreshFailCount, &shipment.AmazonOrderNumber,
+			&shipment.DelegatedCarrier, &shipment.DelegatedTrackingNumber,
+			&shipment.IsAmazonLogistics)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +136,8 @@ func (s *ShipmentStore) GetByID(id int) (*Shipment, error) {
 			  created_at, updated_at, expected_delivery, is_delivered,
 			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
 			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
-			  auto_refresh_fail_count 
+			  auto_refresh_fail_count, amazon_order_number, delegated_carrier,
+			  delegated_tracking_number, is_amazon_logistics 
 			  FROM shipments WHERE id = ?`
 	
 	var shipment Shipment
@@ -136,7 +147,9 @@ func (s *ShipmentStore) GetByID(id int) (*Shipment, error) {
 		&shipment.IsDelivered, &shipment.LastManualRefresh, &shipment.ManualRefreshCount,
 		&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
 		&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
-		&shipment.AutoRefreshFailCount)
+		&shipment.AutoRefreshFailCount, &shipment.AmazonOrderNumber,
+		&shipment.DelegatedCarrier, &shipment.DelegatedTrackingNumber,
+		&shipment.IsAmazonLogistics)
 	
 	if err != nil {
 		return nil, err
@@ -152,13 +165,14 @@ func (s *ShipmentStore) Create(shipment *Shipment) error {
 		shipment.AutoRefreshEnabled = true // Default to enabled
 	}
 	
-	query := `INSERT INTO shipments (tracking_number, carrier, description, status, expected_delivery, is_delivered, manual_refresh_count, auto_refresh_count, auto_refresh_enabled, auto_refresh_fail_count) 
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO shipments (tracking_number, carrier, description, status, expected_delivery, is_delivered, manual_refresh_count, auto_refresh_count, auto_refresh_enabled, auto_refresh_fail_count, amazon_order_number, delegated_carrier, delegated_tracking_number, is_amazon_logistics) 
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	
 	result, err := s.db.Exec(query, shipment.TrackingNumber, shipment.Carrier,
 		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
 		shipment.IsDelivered, shipment.ManualRefreshCount, shipment.AutoRefreshCount,
-		shipment.AutoRefreshEnabled, shipment.AutoRefreshFailCount)
+		shipment.AutoRefreshEnabled, shipment.AutoRefreshFailCount, shipment.AmazonOrderNumber,
+		shipment.DelegatedCarrier, shipment.DelegatedTrackingNumber, shipment.IsAmazonLogistics)
 	if err != nil {
 		return err
 	}
@@ -185,6 +199,10 @@ func (s *ShipmentStore) Create(shipment *Shipment) error {
 	shipment.AutoRefreshEnabled = created.AutoRefreshEnabled
 	shipment.AutoRefreshError = created.AutoRefreshError
 	shipment.AutoRefreshFailCount = created.AutoRefreshFailCount
+	shipment.AmazonOrderNumber = created.AmazonOrderNumber
+	shipment.DelegatedCarrier = created.DelegatedCarrier
+	shipment.DelegatedTrackingNumber = created.DelegatedTrackingNumber
+	shipment.IsAmazonLogistics = created.IsAmazonLogistics
 	
 	return nil
 }
@@ -195,14 +213,16 @@ func (s *ShipmentStore) Update(id int, shipment *Shipment) error {
 			  status = ?, expected_delivery = ?, is_delivered = ?, last_manual_refresh = ?, 
 			  manual_refresh_count = ?, last_auto_refresh = ?, auto_refresh_count = ?,
 			  auto_refresh_enabled = ?, auto_refresh_error = ?, auto_refresh_fail_count = ?,
-			  updated_at = CURRENT_TIMESTAMP 
+			  amazon_order_number = ?, delegated_carrier = ?, delegated_tracking_number = ?,
+			  is_amazon_logistics = ?, updated_at = CURRENT_TIMESTAMP 
 			  WHERE id = ?`
 	
 	result, err := s.db.Exec(query, shipment.TrackingNumber, shipment.Carrier,
 		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
 		shipment.IsDelivered, shipment.LastManualRefresh, shipment.ManualRefreshCount,
 		shipment.LastAutoRefresh, shipment.AutoRefreshCount, shipment.AutoRefreshEnabled,
-		shipment.AutoRefreshError, shipment.AutoRefreshFailCount, id)
+		shipment.AutoRefreshError, shipment.AutoRefreshFailCount, shipment.AmazonOrderNumber,
+		shipment.DelegatedCarrier, shipment.DelegatedTrackingNumber, shipment.IsAmazonLogistics, id)
 	
 	if err != nil {
 		return err
@@ -325,7 +345,8 @@ func (s *ShipmentStore) GetActiveForAutoUpdate(carrier string, cutoffDate time.T
 			  created_at, updated_at, expected_delivery, is_delivered,
 			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
 			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
-			  auto_refresh_fail_count 
+			  auto_refresh_fail_count, amazon_order_number, delegated_carrier,
+			  delegated_tracking_number, is_amazon_logistics 
 			  FROM shipments 
 			  WHERE is_delivered = false 
 			  AND carrier = ? 
@@ -349,7 +370,9 @@ func (s *ShipmentStore) GetActiveForAutoUpdate(carrier string, cutoffDate time.T
 			&shipment.LastManualRefresh, &shipment.ManualRefreshCount,
 			&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
 			&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
-			&shipment.AutoRefreshFailCount)
+			&shipment.AutoRefreshFailCount, &shipment.AmazonOrderNumber,
+			&shipment.DelegatedCarrier, &shipment.DelegatedTrackingNumber,
+			&shipment.IsAmazonLogistics)
 		if err != nil {
 			return nil, err
 		}
@@ -416,14 +439,16 @@ func (s *ShipmentStore) UpdateShipmentWithAutoRefresh(id int, shipment *Shipment
 			  status = ?, expected_delivery = ?, is_delivered = ?, last_manual_refresh = ?, 
 			  manual_refresh_count = ?, last_auto_refresh = ?, auto_refresh_count = ?,
 			  auto_refresh_enabled = ?, auto_refresh_error = ?, auto_refresh_fail_count = ?,
-			  updated_at = CURRENT_TIMESTAMP 
+			  amazon_order_number = ?, delegated_carrier = ?, delegated_tracking_number = ?,
+			  is_amazon_logistics = ?, updated_at = CURRENT_TIMESTAMP 
 			  WHERE id = ?`
 	
 	result, err := tx.Exec(updateQuery, shipment.TrackingNumber, shipment.Carrier,
 		shipment.Description, shipment.Status, shipment.ExpectedDelivery,
 		shipment.IsDelivered, shipment.LastManualRefresh, shipment.ManualRefreshCount,
 		shipment.LastAutoRefresh, shipment.AutoRefreshCount, shipment.AutoRefreshEnabled,
-		shipment.AutoRefreshError, shipment.AutoRefreshFailCount, id)
+		shipment.AutoRefreshError, shipment.AutoRefreshFailCount, shipment.AmazonOrderNumber,
+		shipment.DelegatedCarrier, shipment.DelegatedTrackingNumber, shipment.IsAmazonLogistics, id)
 	
 	if err != nil {
 		return fmt.Errorf("failed to update shipment: %w", err)

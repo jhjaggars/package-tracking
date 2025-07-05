@@ -321,7 +321,7 @@ func TestClientFactory_GetAvailableCarriers(t *testing.T) {
 	factory := NewClientFactory()
 	carriers := factory.GetAvailableCarriers()
 	
-	expected := []string{"usps", "ups", "fedex", "dhl"}
+	expected := []string{"usps", "ups", "fedex", "dhl", "amazon"}
 	
 	if len(carriers) != len(expected) {
 		t.Errorf("Expected %d carriers, got %d", len(expected), len(carriers))
@@ -338,6 +338,24 @@ func TestClientFactory_GetAvailableCarriers(t *testing.T) {
 		if !found {
 			t.Errorf("Expected carrier '%s' not found in available carriers", expectedCarrier)
 		}
+	}
+}
+
+func TestClientFactory_CreateClient_Amazon(t *testing.T) {
+	factory := NewClientFactory()
+	
+	// Test Amazon client creation - no configuration needed
+	client, clientType, err := factory.CreateClient("amazon")
+	if err != nil {
+		t.Fatalf("Failed to create Amazon client: %v", err)
+	}
+	
+	if clientType != ClientTypeScraping {
+		t.Errorf("Expected scraping client type for Amazon, got %s", clientType)
+	}
+	
+	if client.GetCarrierName() != "amazon" {
+		t.Errorf("Expected carrier name 'amazon', got '%s'", client.GetCarrierName())
 	}
 }
 

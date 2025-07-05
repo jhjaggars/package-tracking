@@ -224,6 +224,7 @@ func (e *TrackingExtractor) analyzeFromAddress(from string) []email.CarrierHint 
 		"usps": {"usps.com", "email.usps.com", "informeddelivery.usps.com"},
 		"fedex": {"fedex.com", "tracking.fedex.com", "shipment.fedex.com"},
 		"dhl": {"dhl.com", "noreply.dhl.com", "dhl.de"},
+		"amazon": {"amazon.com", "shipment-tracking.amazon.com", "marketplace.amazon.com", "amazonlogistics.com"},
 	}
 	
 	for carrier, domains := range carriers {
@@ -262,7 +263,7 @@ func (e *TrackingExtractor) analyzeSubject(subject string) []email.CarrierHint {
 	subject = strings.ToLower(subject)
 	
 	// Direct carrier mentions
-	carriers := []string{"ups", "usps", "fedex", "dhl"}
+	carriers := []string{"ups", "usps", "fedex", "dhl", "amazon"}
 	for _, carrier := range carriers {
 		if strings.Contains(subject, carrier) {
 			hints = append(hints, email.CarrierHint{
@@ -270,6 +271,19 @@ func (e *TrackingExtractor) analyzeSubject(subject string) []email.CarrierHint {
 				Confidence: 0.7,
 				Source:     "subject",
 				Reason:     fmt.Sprintf("Contains '%s'", carrier),
+			})
+		}
+	}
+	
+	// Amazon-specific terms in subject
+	amazonTerms := []string{"amazon logistics", "amzl", "order shipped", "order update"}
+	for _, term := range amazonTerms {
+		if strings.Contains(subject, term) {
+			hints = append(hints, email.CarrierHint{
+				Carrier:    "amazon",
+				Confidence: 0.8,
+				Source:     "subject",
+				Reason:     fmt.Sprintf("Contains Amazon term '%s'", term),
 			})
 		}
 	}
@@ -297,12 +311,26 @@ func (e *TrackingExtractor) analyzeContent(content string) []email.CarrierHint {
 	
 	// Count carrier mentions
 	carrierCounts := make(map[string]int)
-	carriers := []string{"ups", "usps", "fedex", "dhl"}
+	carriers := []string{"ups", "usps", "fedex", "dhl", "amazon"}
 	
 	for _, carrier := range carriers {
 		count := strings.Count(content, carrier)
 		if count > 0 {
 			carrierCounts[carrier] = count
+		}
+	}
+	
+	// Special handling for Amazon-specific terms
+	amazonTerms := []string{"amazon logistics", "amzl", "order number", "amazon.com"}
+	amazonCount := 0
+	for _, term := range amazonTerms {
+		amazonCount += strings.Count(content, term)
+	}
+	if amazonCount > 0 {
+		if existing, ok := carrierCounts["amazon"]; ok {
+			carrierCounts["amazon"] = existing + amazonCount
+		} else {
+			carrierCounts["amazon"] = amazonCount
 		}
 	}
 	
@@ -383,7 +411,8 @@ func (e *TrackingExtractor) validateCandidates(candidates []email.TrackingCandid
 	
 	for _, candidate := range candidates {
 		// Try validating against all carriers to find the correct one
-		for _, carrierCode := range []string{"ups", "usps", "fedex", "dhl"} {
+		// Order matters: more specific patterns first to avoid false positives
+		for _, carrierCode := range []string{"amazon", "ups", "usps", "fedex", "dhl"} {
 			client, _, err := e.carrierFactory.CreateClient(carrierCode)
 			if err != nil {
 				continue

@@ -132,7 +132,12 @@ func (db *DB) migrate() error {
 	}
 
 	// Run auto-refresh field migrations
-	return db.migrateAutoRefreshFields()
+	if err := db.migrateAutoRefreshFields(); err != nil {
+		return err
+	}
+
+	// Run Amazon fields migration
+	return db.migrateAmazonFields()
 }
 
 // insertDefaultCarriers adds default carrier data
@@ -147,6 +152,7 @@ func (db *DB) insertDefaultCarriers() error {
 		{"United States Postal Service", "usps", "https://api.usps.com/track", true},
 		{"FedEx", "fedex", "https://api.fedex.com/track", true},
 		{"DHL", "dhl", "https://api.dhl.com/track", false},
+		{"Amazon", "amazon", "", true},
 	}
 
 	for _, carrier := range carriers {
@@ -239,6 +245,50 @@ func (db *DB) migrateAutoRefreshFields() error {
 		for _, query := range indexQueries {
 			if _, err := db.Exec(query); err != nil {
 				return fmt.Errorf("failed to create auto-refresh index '%s': %w", query, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// migrateAmazonFields adds Amazon-related fields to existing databases
+func (db *DB) migrateAmazonFields() error {
+	// Check if Amazon columns already exist
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM pragma_table_info('shipments') 
+		WHERE name = 'amazon_order_number'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check amazon_order_number column existence: %w", err)
+	}
+
+	// If columns don't exist, add them
+	if columnExists == 0 {
+		alterQueries := []string{
+			"ALTER TABLE shipments ADD COLUMN amazon_order_number TEXT",
+			"ALTER TABLE shipments ADD COLUMN delegated_carrier TEXT",
+			"ALTER TABLE shipments ADD COLUMN delegated_tracking_number TEXT",
+			"ALTER TABLE shipments ADD COLUMN is_amazon_logistics BOOLEAN DEFAULT FALSE",
+		}
+
+		for _, query := range alterQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to execute Amazon migration query '%s': %w", query, err)
+			}
+		}
+
+		// Add indexes for Amazon fields
+		indexQueries := []string{
+			"CREATE INDEX IF NOT EXISTS idx_shipments_amazon_order ON shipments(amazon_order_number)",
+			"CREATE INDEX IF NOT EXISTS idx_shipments_delegated_tracking ON shipments(delegated_carrier, delegated_tracking_number)",
+		}
+
+		for _, query := range indexQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to create Amazon index '%s': %w", query, err)
 			}
 		}
 	}

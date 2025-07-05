@@ -25,7 +25,7 @@ func init() {
 
 	// Required flags
 	addCmd.Flags().StringVarP(&addTrackingNumber, "tracking", "t", "", "Tracking number (required)")
-	addCmd.Flags().StringVarP(&addCarrier, "carrier", "c", "", "Carrier name (ups, fedex, usps, dhl) (required)")
+	addCmd.Flags().StringVarP(&addCarrier, "carrier", "c", "", "Carrier name (ups, fedex, usps, dhl, amazon) (required)")
 	addCmd.Flags().StringVarP(&addDescription, "description", "d", "", "Package description")
 
 	// Mark required flags

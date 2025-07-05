@@ -143,6 +143,8 @@ func (f *ClientFactory) createScrapingClient(carrier string, config *CarrierConf
 		return NewFedExScrapingClient(userAgent), nil
 	case "dhl":
 		return NewDHLScrapingClient(userAgent), nil
+	case "amazon":
+		return NewAmazonClient(f), nil
 	default:
 		return nil, fmt.Errorf("unsupported carrier for scraping: %s", carrier)
 	}
@@ -182,7 +184,7 @@ func (f *ClientFactory) requiresHeadless(carrier string) bool {
 
 // GetAvailableCarriers returns a list of supported carriers
 func (f *ClientFactory) GetAvailableCarriers() []string {
-	return []string{"usps", "ups", "fedex", "dhl"}
+	return []string{"usps", "ups", "fedex", "dhl", "amazon"}
 }
 
 // IsAPIConfigured checks if API credentials are configured for a carrier
@@ -199,6 +201,8 @@ func (f *ClientFactory) IsAPIConfigured(carrier string) bool {
 		return config.ClientID != "" && config.ClientSecret != ""
 	case "dhl":
 		return config.APIKey != ""
+	case "amazon":
+		return false // Amazon has no API, always use email-based tracking
 	default:
 		return false
 	}

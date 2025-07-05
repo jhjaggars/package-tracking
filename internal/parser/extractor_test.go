@@ -672,3 +672,140 @@ func BenchmarkPatternManager_ExtractForCarrier(b *testing.B) {
 		pm.ExtractForCarrier(text, "ups")
 	}
 }
+
+func TestAmazonEmailProcessing(t *testing.T) {
+	// Initialize test dependencies
+	carrierFactory := carriers.NewClientFactory()
+	config := &ExtractorConfig{
+		EnableLLM:           false,
+		MinConfidence:       0.5,
+		MaxCandidates:       10,
+		UseHybridValidation: true,
+		DebugMode:           false,
+	}
+	
+	llmConfig := &LLMConfig{
+		Enabled: false,
+	}
+	
+	extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
+	
+	testCases := []struct {
+		name                 string
+		emailContent         *email.EmailContent
+		expectedCarrier      string
+		expectedTrackingNum  string
+		shouldFind           bool
+		expectedCarrierHints int
+	}{
+		{
+			name: "Amazon shipping notification with order number",
+			emailContent: &email.EmailContent{
+				PlainText: "Your Amazon order 113-1234567-1234567 has shipped. Expected delivery: Tuesday.",
+				From:      "ship-confirm@amazon.com",
+				Subject:   "Your Amazon order has shipped",
+				MessageID: "amazon-test-1",
+				Date:      time.Now(),
+			},
+			expectedCarrier:      "amazon",
+			expectedTrackingNum:  "11312345671234567", // Cleaned format (no dashes)
+			shouldFind:           true,
+			expectedCarrierHints: 1,
+		},
+		{
+			name: "Amazon Logistics tracking",
+			emailContent: &email.EmailContent{
+				PlainText: "Your package TBA123456789012 is out for delivery with Amazon Logistics.",
+				From:      "shipment-tracking@amazon.com",
+				Subject:   "Amazon Logistics - Package Update",
+				MessageID: "amazon-test-2",
+				Date:      time.Now(),
+			},
+			expectedCarrier:      "amazon",
+			expectedTrackingNum:  "TBA123456789012",
+			shouldFind:           true,
+			expectedCarrierHints: 1,
+		},
+		{
+			name: "Amazon delegation to UPS",
+			emailContent: &email.EmailContent{
+				PlainText: "Your Amazon order 456-7890123-4567890 has been shipped via UPS. Tracking: 1Z999AA1234567890",
+				From:      "auto-confirm@amazon.com",
+				Subject:   "Your order has shipped",
+				MessageID: "amazon-test-3",
+				Date:      time.Now(),
+			},
+			expectedCarrier:      "amazon", // Should find Amazon order first
+			expectedTrackingNum:  "45678901234567890", // Cleaned format (no dashes)
+			shouldFind:           true,
+			expectedCarrierHints: 1,
+		},
+		{
+			name: "Amazon Marketplace seller notification",
+			emailContent: &email.EmailContent{
+				PlainText: "Order #789-0123456-7890123 from YourStore has been shipped. Tracking will be available soon.",
+				From:      "marketplace@amazon.com",
+				Subject:   "Your order from YourStore has shipped",
+				MessageID: "amazon-test-4",
+				Date:      time.Now(),
+			},
+			expectedCarrier:      "amazon",
+			expectedTrackingNum:  "78901234567890123", // Cleaned format (no dashes)
+			shouldFind:           true,
+			expectedCarrierHints: 1,
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test carrier identification
+			hints := extractor.identifyCarriers(tc.emailContent)
+			if len(hints) < tc.expectedCarrierHints {
+				t.Errorf("Expected at least %d carrier hints, got %d", tc.expectedCarrierHints, len(hints))
+			}
+			
+			// Check if Amazon is identified as a carrier
+			foundAmazon := false
+			for _, hint := range hints {
+				if hint.Carrier == "amazon" {
+					foundAmazon = true
+					break
+				}
+			}
+			if tc.expectedCarrier == "amazon" && !foundAmazon {
+				t.Errorf("Expected Amazon to be identified as carrier, but it wasn't found in hints: %v", hints)
+			}
+			
+			// Test full extraction
+			results, err := extractor.Extract(tc.emailContent)
+			if err != nil {
+				t.Fatalf("Extract failed: %v", err)
+			}
+			
+			if tc.shouldFind {
+				if len(results) == 0 {
+					t.Errorf("Expected to find tracking numbers, got none")
+					return
+				}
+				
+				// Look for the expected tracking number
+				found := false
+				for _, result := range results {
+					if result.Number == tc.expectedTrackingNum && result.Carrier == tc.expectedCarrier {
+						found = true
+						break
+					}
+				}
+				
+				if !found {
+					t.Errorf("Expected to find tracking number '%s' with carrier '%s', but got results: %v", 
+						tc.expectedTrackingNum, tc.expectedCarrier, results)
+				}
+			} else {
+				if len(results) > 0 {
+					t.Errorf("Expected no tracking numbers, but found: %v", results)
+				}
+			}
+		})
+	}
+}
