@@ -9,10 +9,11 @@ import (
 
 // PatternManager handles carrier-specific regex patterns for tracking number extraction
 type PatternManager struct {
-	upsPatterns    []*PatternEntry
-	uspsPatterns   []*PatternEntry
-	fedexPatterns  []*PatternEntry
-	dhlPatterns    []*PatternEntry
+	upsPatterns     []*PatternEntry
+	uspsPatterns    []*PatternEntry
+	fedexPatterns   []*PatternEntry
+	dhlPatterns     []*PatternEntry
+	amazonPatterns  []*PatternEntry
 	genericPatterns []*PatternEntry
 }
 
@@ -39,6 +40,7 @@ func (pm *PatternManager) initializePatterns() {
 	pm.initUSPSPatterns()
 	pm.initFedExPatterns()
 	pm.initDHLPatterns()
+	pm.initAmazonPatterns()
 	pm.initGenericPatterns()
 }
 
@@ -291,6 +293,99 @@ func (pm *PatternManager) initDHLPatterns() {
 	}
 }
 
+// initAmazonPatterns initializes Amazon tracking number patterns
+func (pm *PatternManager) initAmazonPatterns() {
+	pm.amazonPatterns = []*PatternEntry{
+		// Amazon order number patterns
+		{
+			Regex:       regexp.MustCompile(`\b\d{3}-\d{7}-\d{7}\b`),
+			Carrier:     "amazon",
+			Format:      "order_number",
+			Confidence:  0.95,
+			Context:     "direct",
+			Description: "Amazon order number format ###-#######-#######",
+		},
+		{
+			Regex:       regexp.MustCompile(`\b\d{17}\b`),
+			Carrier:     "amazon",
+			Format:      "order_number_compact",
+			Confidence:  0.8,
+			Context:     "direct",
+			Description: "Amazon order number without dashes",
+		},
+		// Amazon Logistics tracking numbers
+		{
+			Regex:       regexp.MustCompile(`(?i)\bTBA\d{12}\b`),
+			Carrier:     "amazon",
+			Format:      "amzl_tracking",
+			Confidence:  0.95,
+			Context:     "direct",
+			Description: "Amazon Logistics tracking number TBA############",
+		},
+		// Labeled context patterns for Amazon orders
+		{
+			Regex:       regexp.MustCompile(`(?i)(?:amazon\s*)?(?:order\s*(?:number|#|id)?|tracking\s*(?:number|#)?)\s*:?\s*(\d{3}-\d{7}-\d{7})`),
+			Carrier:     "amazon",
+			Format:      "labeled_order",
+			Confidence:  0.9,
+			Context:     "labeled",
+			Description: "Amazon order number with label",
+		},
+		{
+			Regex:       regexp.MustCompile(`(?i)(?:amazon\s*)?(?:order\s*(?:number|#|id)?|tracking\s*(?:number|#)?)\s*:?\s*(\d{17})`),
+			Carrier:     "amazon",
+			Format:      "labeled_order_compact",
+			Confidence:  0.85,
+			Context:     "labeled",
+			Description: "Amazon order number without dashes with label",
+		},
+		// Labeled context patterns for Amazon Logistics
+		{
+			Regex:       regexp.MustCompile(`(?i)(?:amazon\s*logistics|amzl|tracking\s*(?:number|#)?)\s*:?\s*(TBA\d{12})`),
+			Carrier:     "amazon",
+			Format:      "labeled_amzl",
+			Confidence:  0.9,
+			Context:     "labeled",
+			Description: "Amazon Logistics tracking with label",
+		},
+		// Spaced Amazon order number formats
+		{
+			Regex:       regexp.MustCompile(`\b\d{3}\s?-?\s?\d{7}\s?-?\s?\d{7}\b`),
+			Carrier:     "amazon",
+			Format:      "spaced_order",
+			Confidence:  0.8,
+			Context:     "formatted",
+			Description: "Amazon order number with spacing",
+		},
+		// Amazon delegation patterns (when Amazon uses other carriers)
+		{
+			Regex:       regexp.MustCompile(`(?i)amazon.*(?:shipped\s*via|handled\s*by|delivered\s*by)\s*(ups|fedex|usps|dhl).*?([A-Z0-9]{10,25})`),
+			Carrier:     "amazon",
+			Format:      "delegation",
+			Confidence:  0.8,
+			Context:     "delegation",
+			Description: "Amazon shipment delegated to other carrier",
+		},
+		// Table/structured data for Amazon
+		{
+			Regex:       regexp.MustCompile(`<td[^>]*>(\d{3}-\d{7}-\d{7})</td>`),
+			Carrier:     "amazon",
+			Format:      "table_order",
+			Confidence:  0.85,
+			Context:     "table",
+			Description: "Amazon order number in HTML table",
+		},
+		{
+			Regex:       regexp.MustCompile(`<td[^>]*>(TBA\d{12})</td>`),
+			Carrier:     "amazon",
+			Format:      "table_amzl",
+			Confidence:  0.85,
+			Context:     "table",
+			Description: "Amazon Logistics tracking in HTML table",
+		},
+	}
+}
+
 // initGenericPatterns initializes generic patterns for any carrier
 func (pm *PatternManager) initGenericPatterns() {
 	pm.genericPatterns = []*PatternEntry{
@@ -337,6 +432,8 @@ func (pm *PatternManager) ExtractForCarrier(text, carrier string) []email.Tracki
 		patterns = pm.fedexPatterns
 	case "dhl":
 		patterns = pm.dhlPatterns
+	case "amazon":
+		patterns = pm.amazonPatterns
 	default:
 		return nil
 	}
@@ -427,6 +524,7 @@ func (pm *PatternManager) GetAllPatterns() map[string][]*PatternEntry {
 		"usps":    pm.uspsPatterns,
 		"fedex":   pm.fedexPatterns,
 		"dhl":     pm.dhlPatterns,
+		"amazon":  pm.amazonPatterns,
 		"generic": pm.genericPatterns,
 	}
 }

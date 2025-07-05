@@ -264,7 +264,7 @@ func validateShipment(shipment *database.Shipment) error {
 	}
 
 	// Validate carrier
-	validCarriers := []string{"ups", "usps", "fedex", "dhl"}
+	validCarriers := []string{"ups", "usps", "fedex", "dhl", "amazon"}
 	validCarrier := false
 	for _, c := range validCarriers {
 		if shipment.Carrier == c {
@@ -276,9 +276,33 @@ func validateShipment(shipment *database.Shipment) error {
 		return fmt.Errorf("invalid carrier: must be one of %v", validCarriers)
 	}
 
+	// Amazon-specific validation
+	if shipment.Carrier == "amazon" {
+		// Validate Amazon tracking number format
+		if err := validateAmazonTrackingNumber(shipment.TrackingNumber); err != nil {
+			return fmt.Errorf("invalid Amazon tracking number: %v", err)
+		}
+	}
+
 	return nil
 }
 
+// validateAmazonTrackingNumber validates Amazon tracking number formats
+func validateAmazonTrackingNumber(trackingNumber string) error {
+	// Create Amazon client to validate
+	factory := carriers.NewClientFactory()
+	client, _, err := factory.CreateClient("amazon")
+	if err != nil {
+		return fmt.Errorf("failed to create Amazon client for validation: %v", err)
+	}
+	
+	// Use the Amazon client's validation
+	if !client.ValidateTrackingNumber(trackingNumber) {
+		return fmt.Errorf("tracking number does not match Amazon format (17-digit order number or TBA+12 digits)")
+	}
+	
+	return nil
+}
 
 // RefreshResponse represents the response from a manual refresh request
 type RefreshResponse struct {

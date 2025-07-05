@@ -42,7 +42,11 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		auto_refresh_count INTEGER DEFAULT 0,
 		auto_refresh_enabled BOOLEAN DEFAULT TRUE,
 		auto_refresh_error TEXT,
-		auto_refresh_fail_count INTEGER DEFAULT 0
+		auto_refresh_fail_count INTEGER DEFAULT 0,
+		amazon_order_number TEXT,
+		delegated_carrier TEXT,
+		delegated_tracking_number TEXT,
+		is_amazon_logistics BOOLEAN DEFAULT FALSE
 	);
 
 	CREATE TABLE tracking_events (
@@ -77,6 +81,8 @@ func setupTestServer(t *testing.T) *httptest.Server {
 	CREATE INDEX idx_shipments_carrier_delivered ON shipments(carrier, is_delivered);
 	CREATE INDEX idx_tracking_events_shipment ON tracking_events(shipment_id);
 	CREATE INDEX idx_tracking_events_dedup ON tracking_events(shipment_id, timestamp, description);
+	CREATE INDEX idx_shipments_amazon_order ON shipments(amazon_order_number);
+	CREATE INDEX idx_shipments_delegated_tracking ON shipments(delegated_carrier, delegated_tracking_number);
 	`
 
 	if _, err := sqlDB.Exec(schema); err != nil {
@@ -89,6 +95,7 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		Shipments:      database.NewShipmentStore(sqlDB),
 		TrackingEvents: database.NewTrackingEventStore(sqlDB),
 		Carriers:       database.NewCarrierStore(sqlDB),
+		RefreshCache:   database.NewRefreshCacheStore(sqlDB),
 	}
 
 	// Insert default carriers
@@ -100,6 +107,7 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		{"United States Postal Service", "usps", "https://api.usps.com/track", true},
 		{"FedEx", "fedex", "https://api.fedex.com/track", true},
 		{"DHL", "dhl", "https://api.dhl.com/track", false},
+		{"Amazon", "amazon", "", true},
 	}
 
 	for _, carrier := range carriers {
@@ -323,8 +331,8 @@ func TestIntegrationWorkflow(t *testing.T) {
 			t.Fatalf("Failed to decode carriers: %v", err)
 		}
 
-		if len(carriers) != 4 {
-			t.Errorf("Expected 4 carriers, got %d", len(carriers))
+		if len(carriers) != 5 {
+			t.Errorf("Expected 5 carriers, got %d", len(carriers))
 		}
 
 		// Test active carriers filter
@@ -343,8 +351,8 @@ func TestIntegrationWorkflow(t *testing.T) {
 			t.Fatalf("Failed to decode active carriers: %v", err)
 		}
 
-		if len(activeCarriers) != 3 {
-			t.Errorf("Expected 3 active carriers, got %d", len(activeCarriers))
+		if len(activeCarriers) != 4 {
+			t.Errorf("Expected 4 active carriers, got %d", len(activeCarriers))
 		}
 	})
 
