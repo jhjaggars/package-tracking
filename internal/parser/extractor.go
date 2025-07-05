@@ -528,13 +528,16 @@ func (e *TrackingExtractor) isLikelyAmazonInternalCode(trackingNumber string) bo
 		return false
 	}
 
+	// Normalize to uppercase for consistency
+	normalizedNumber := strings.ToUpper(trackingNumber)
+
 	// Must be alphanumeric
-	if matched, _ := regexp.MatchString(`^[A-Za-z0-9]+$`, trackingNumber); !matched {
+	if matched, _ := regexp.MatchString(`^[A-Z0-9]+$`, normalizedNumber); !matched {
 		return false
 	}
 
 	// Must contain at least one letter (to distinguish from pure numbers)
-	if matched, _ := regexp.MatchString(`[A-Za-z]`, trackingNumber); !matched {
+	if matched, _ := regexp.MatchString(`[A-Z]`, normalizedNumber); !matched {
 		return false
 	}
 

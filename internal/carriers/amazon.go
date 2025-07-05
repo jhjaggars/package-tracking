@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// Pre-compiled regular expressions for better performance
+var (
+	letterRegex = regexp.MustCompile(`[A-Za-z]`)
+	numberRegex = regexp.MustCompile(`\d`)
+)
+
 // AmazonClient implements the Client interface for Amazon shipments
 // Since Amazon doesn't provide public APIs, this client handles:
 // 1. Amazon order numbers (###-#######-#######)
@@ -102,8 +108,8 @@ func (c *AmazonClient) isAmazonInternalReference(trackingNumber string) bool {
 	}
 
 	// Must contain at least one letter and one number (mixed alphanumeric)
-	hasLetter := regexp.MustCompile(`[A-Za-z]`).MatchString(trackingNumber)
-	hasNumber := regexp.MustCompile(`\d`).MatchString(trackingNumber)
+	hasLetter := letterRegex.MatchString(trackingNumber)
+	hasNumber := numberRegex.MatchString(trackingNumber)
 
 	if !hasLetter || !hasNumber {
 		return false
