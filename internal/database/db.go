@@ -151,6 +151,8 @@ func (db *DB) insertDefaultCarriers() error {
 		{"United Parcel Service", "ups", "https://api.ups.com/track", true},
 		{"United States Postal Service", "usps", "https://api.usps.com/track", true},
 		{"FedEx", "fedex", "https://api.fedex.com/track", true},
+		// DHL is inactive by default due to strict rate limiting (250 requests/day)
+		// and limited geographical coverage compared to other carriers
 		{"DHL", "dhl", "https://api.dhl.com/track", false},
 		{"Amazon", "amazon", "", true},
 	}
