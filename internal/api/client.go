@@ -105,13 +105,18 @@ func (c *Client) CreateShipment(tracking email.TrackingInfo) error {
 		Status:         "pending", // Default status
 	}
 	
-	// If description is empty, generate one
+	// If description is empty, generate one with enhanced merchant support
 	if request.Description == "" {
-		request.Description = fmt.Sprintf("Package from %s", tracking.SourceEmail.From)
-		
-		// Try to extract description from email subject
-		if tracking.SourceEmail.Subject != "" {
-			request.Description = tracking.SourceEmail.Subject
+		// Check if we have merchant information for fallback
+		if tracking.Merchant != "" {
+			request.Description = fmt.Sprintf("Package from %s", tracking.Merchant)
+		} else {
+			// Legacy fallback: use email subject or sender
+			if tracking.SourceEmail.Subject != "" {
+				request.Description = tracking.SourceEmail.Subject
+			} else {
+				request.Description = fmt.Sprintf("Package from %s", tracking.SourceEmail.From)
+			}
 		}
 	}
 	

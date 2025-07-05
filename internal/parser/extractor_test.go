@@ -477,6 +477,192 @@ func TestTrackingExtractor_LLMInitialization(t *testing.T) {
 	}
 }
 
+func TestTrackingExtractor_MergeResultsWithMerchant(t *testing.T) {
+	// Initialize test dependencies
+	carrierFactory := carriers.NewClientFactory()
+	config := &ExtractorConfig{
+		EnableLLM:           true,
+		MinConfidence:       0.5,
+		MaxCandidates:       10,
+		UseHybridValidation: true,
+		DebugMode:           false,
+	}
+	
+	llmConfig := &LLMConfig{
+		Enabled: true,
+	}
+	
+	extractor := NewTrackingExtractor(carrierFactory, config, llmConfig)
+	
+	testCases := []struct {
+		name        string
+		regexResults []email.TrackingInfo
+		llmResults   []email.TrackingInfo
+		expected     []string // expected descriptions
+	}{
+		{
+			name:         "LLM result with merchant and description",
+			regexResults: []email.TrackingInfo{},
+			llmResults: []email.TrackingInfo{
+				{
+					Number:      "1Z999AA1234567890",
+					Carrier:     "ups",
+					Description: "Apple iPhone 15 Pro 256GB Space Black",
+					Merchant:    "Amazon",
+					Confidence:  0.95,
+					Source:      "llm",
+				},
+			},
+			expected: []string{"Apple iPhone 15 Pro 256GB Space Black from Amazon"},
+		},
+		{
+			name: "Merge regex with LLM enhancement",
+			regexResults: []email.TrackingInfo{
+				{
+					Number:     "1Z999AA1234567890",
+					Carrier:    "ups",
+					Confidence: 0.8,
+					Source:     "regex",
+				},
+			},
+			llmResults: []email.TrackingInfo{
+				{
+					Number:      "1Z999AA1234567890",
+					Carrier:     "ups",
+					Description: "MacBook Pro 16-inch",
+					Merchant:    "Apple Store",
+					Confidence:  0.92,
+					Source:      "llm",
+				},
+			},
+			expected: []string{"MacBook Pro 16-inch from Apple Store"},
+		},
+		{
+			name:         "LLM result with description only",
+			regexResults: []email.TrackingInfo{},
+			llmResults: []email.TrackingInfo{
+				{
+					Number:      "9405511206213414325732",
+					Carrier:     "usps",
+					Description: "Nike Air Max 270 sneakers",
+					Merchant:    "",
+					Confidence:  0.85,
+					Source:      "llm",
+				},
+			},
+			expected: []string{"Nike Air Max 270 sneakers"},
+		},
+		{
+			name:         "LLM result with merchant only",
+			regexResults: []email.TrackingInfo{},
+			llmResults: []email.TrackingInfo{
+				{
+					Number:      "961234567890",
+					Carrier:     "fedex",
+					Description: "",
+					Merchant:    "Best Buy",
+					Confidence:  0.75,
+					Source:      "llm",
+				},
+			},
+			expected: []string{"Package from Best Buy"},
+		},
+		{
+			name: "Multiple tracking numbers with different merchants",
+			regexResults: []email.TrackingInfo{},
+			llmResults: []email.TrackingInfo{
+				{
+					Number:      "1Z999AA1234567890",
+					Carrier:     "ups",
+					Description: "Dell XPS 13 Laptop",
+					Merchant:    "Amazon",
+					Confidence:  0.9,
+					Source:      "llm",
+				},
+				{
+					Number:      "9405511206213414325732",
+					Carrier:     "usps",
+					Description: "Wireless Mouse",
+					Merchant:    "Best Buy",
+					Confidence:  0.88,
+					Source:      "llm",
+				},
+			},
+			expected: []string{"Dell XPS 13 Laptop from Amazon", "Wireless Mouse from Best Buy"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			results := extractor.mergeResults(tc.regexResults, tc.llmResults)
+			
+			if len(results) != len(tc.expected) {
+				t.Errorf("Expected %d results, got %d", len(tc.expected), len(results))
+				return
+			}
+			
+			// Create a map of actual descriptions for comparison
+			actualDescs := make(map[string]bool)
+			for _, result := range results {
+				actualDescs[result.Description] = true
+			}
+			
+			// Check that all expected descriptions are present
+			for _, expectedDesc := range tc.expected {
+				if !actualDescs[expectedDesc] {
+					t.Errorf("Expected description '%s' not found in results", expectedDesc)
+				}
+			}
+		})
+	}
+}
+
+func TestTrackingExtractor_CombineDescriptionAndMerchant(t *testing.T) {
+	extractor := &TrackingExtractor{}
+	
+	testCases := []struct {
+		name        string
+		description string
+		merchant    string
+		expected    string
+	}{
+		{
+			name:        "Both description and merchant",
+			description: "Apple iPhone 15 Pro 256GB Space Black",
+			merchant:    "Amazon",
+			expected:    "Apple iPhone 15 Pro 256GB Space Black from Amazon",
+		},
+		{
+			name:        "Description only",
+			description: "Nike Air Max 270 sneakers",
+			merchant:    "",
+			expected:    "Nike Air Max 270 sneakers",
+		},
+		{
+			name:        "Merchant only",
+			description: "",
+			merchant:    "Best Buy",
+			expected:    "Package from Best Buy",
+		},
+		{
+			name:        "Neither description nor merchant",
+			description: "",
+			merchant:    "",
+			expected:    "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := extractor.combineDescriptionAndMerchant(tc.description, tc.merchant)
+			
+			if result != tc.expected {
+				t.Errorf("Expected: '%s', got: '%s'", tc.expected, result)
+			}
+		})
+	}
+}
+
 func BenchmarkPatternManager_ExtractForCarrier(b *testing.B) {
 	pm := NewPatternManager()
 	text := "Your UPS package 1Z999AA1234567890 has shipped via UPS Ground service"

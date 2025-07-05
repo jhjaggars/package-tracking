@@ -579,6 +579,123 @@ func createShipmentRequest(tracking email.TrackingInfo) ShipmentRequest {
 }
 
 // Benchmark tests
+func TestClient_CreateShipmentWithMerchantInfo(t *testing.T) {
+	testCases := []struct {
+		name             string
+		tracking         email.TrackingInfo
+		expectedDesc     string
+		description      string
+	}{
+		{
+			name: "Enhanced description with merchant",
+			tracking: email.TrackingInfo{
+				Number:      "1Z999AA1234567890",
+				Carrier:     "ups",
+				Description: "Apple iPhone 15 Pro 256GB Space Black from Amazon",
+				Merchant:    "Amazon",
+				Confidence:  0.95,
+				Source:      "llm",
+			},
+			expectedDesc: "Apple iPhone 15 Pro 256GB Space Black from Amazon",
+			description:  "Should use enhanced LLM description",
+		},
+		{
+			name: "Merchant information in fallback",
+			tracking: email.TrackingInfo{
+				Number:     "9405511206213414325732",
+				Carrier:    "usps",
+				Description: "",
+				Merchant:   "Best Buy",
+				Confidence: 0.8,
+				Source:     "llm",
+				SourceEmail: email.EmailMessage{
+					From:    "orders@bestbuy.com",
+					Subject: "Your order has shipped",
+				},
+			},
+			expectedDesc: "Package from Best Buy",
+			description:  "Should use merchant for fallback description",
+		},
+		{
+			name: "Legacy fallback without merchant",
+			tracking: email.TrackingInfo{
+				Number:      "961234567890",
+				Carrier:     "fedex",
+				Description: "",
+				Merchant:    "",
+				Confidence:  0.7,
+				Source:      "regex",
+				SourceEmail: email.EmailMessage{
+					From:    "noreply@fedex.com",
+					Subject: "Shipment notification",
+				},
+			},
+			expectedDesc: "Shipment notification",
+			description:  "Should fallback to email subject",
+		},
+		{
+			name: "Enhanced description only",
+			tracking: email.TrackingInfo{
+				Number:      "1234567890123",
+				Carrier:     "dhl",
+				Description: "Samsung Galaxy Buds Pro",
+				Merchant:    "",
+				Confidence:  0.85,
+				Source:      "llm",
+			},
+			expectedDesc: "Samsung Galaxy Buds Pro",
+			description:  "Should use LLM description without merchant",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a test server that captures the request
+			var capturedRequest ShipmentRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Capture the request for verification
+				if err := json.NewDecoder(r.Body).Decode(&capturedRequest); err != nil {
+					t.Errorf("Failed to decode request body: %v", err)
+				}
+
+				// Send successful response
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				response := ShipmentResponse{
+					ID:             1,
+					TrackingNumber: capturedRequest.TrackingNumber,
+					Carrier:        capturedRequest.Carrier,
+					Status:         "pending",
+					CreatedAt:      time.Now().Format(time.RFC3339),
+				}
+				json.NewEncoder(w).Encode(response)
+			}))
+			defer server.Close()
+
+			// Create client
+			config := &ClientConfig{
+				BaseURL:    server.URL,
+				Timeout:    5 * time.Second,
+				RetryCount: 0, // No retries for this test
+				RetryDelay: 1 * time.Second,
+			}
+
+			client := NewClient(config)
+
+			// Test the CreateShipment method
+			err := client.CreateShipment(tc.tracking)
+			if err != nil {
+				t.Fatalf("CreateShipment failed: %v", err)
+			}
+
+			// Verify the description was formatted correctly
+			if capturedRequest.Description != tc.expectedDesc {
+				t.Errorf("Expected description '%s', got '%s'", tc.expectedDesc, capturedRequest.Description)
+			}
+		})
+	}
+}
+
 func BenchmarkClient_CreateShipment(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

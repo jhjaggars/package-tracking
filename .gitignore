@@ -23,29 +23,41 @@ go.work
 *.sqlite
 *.sqlite3
 
-# Environment files
+# Environment and configuration files
 .env
+.env.*
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.test
+
+# Configuration files (various formats)
+config.yaml
+config.yml
+config.toml
+config.json
+config/config.yaml
+config/config.yml
+config/config.toml
+config/config.json
+~/.package-tracker/config.yaml
+~/.package-tracker/config.yml
+~/.package-tracker/config.toml
+~/.package-tracker/config.json
+~/.package-tracker/cli.yaml
+~/.package-tracker/cli.yml
+~/.package-tracker.json
+email-tracker.yaml
+email-tracker.yml
+email-tracker.toml
+email-tracker.json
 
 # Logs
 *.log
 logs/
 
 # IDE and editor files
-# Database files
-database.db
-*.db
-
-# Binary files
-bin/
-*.exe
-
-# Go build artifacts
-*.test
-*.out
-
-# IDE files
 .vscode/
 .idea/
 *.swp
@@ -64,18 +76,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
-=======
-# OS files
-.DS_Store
-Thumbs.db
-
-# Temporary files
 tmp/
 temp/
-*.tmp
 *.log.env
 gmail-tokens.json
-email-tracker.yaml
 .env.bak
 .bak
-config.toml

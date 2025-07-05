@@ -94,9 +94,14 @@ func (e *TrackingExtractor) Extract(content *email.EmailContent) ([]email.Tracki
 	var llmResults []email.TrackingInfo
 	if e.config.EnableLLM && e.shouldUseLLM(validated, content) {
 		var err error
-		llmResults, err = e.llmExtractor.Extract(content)
+		llmResults, err = e.extractWithEnhancedLLM(content)
 		if err != nil {
-			log.Printf("LLM extraction failed: %v", err)
+			log.Printf("Enhanced LLM extraction failed, falling back to basic LLM: %v", err)
+			// Fallback to basic LLM extraction
+			llmResults, err = e.llmExtractor.Extract(content)
+			if err != nil {
+				log.Printf("LLM extraction failed: %v", err)
+			}
 		}
 	}
 	
@@ -541,7 +546,41 @@ func (e *TrackingExtractor) isKnownCarrierSender(from string) bool {
 	return false
 }
 
-// mergeResults combines regex and LLM results
+// extractWithEnhancedLLM performs enhanced LLM extraction with confidence-based fallback
+func (e *TrackingExtractor) extractWithEnhancedLLM(content *email.EmailContent) ([]email.TrackingInfo, error) {
+	// Try to use enhanced LLM extraction
+	if localExtractor, ok := e.llmExtractor.(*LocalLLMExtractor); ok {
+		// Use enhanced prompt
+		prompt := localExtractor.buildEnhancedPrompt(content)
+		response, err := localExtractor.callLLM(prompt)
+		if err != nil {
+			return nil, fmt.Errorf("enhanced LLM call failed: %w", err)
+		}
+		
+		// Parse enhanced response
+		results, err := localExtractor.parseEnhancedResponse(response)
+		if err != nil {
+			return nil, fmt.Errorf("enhanced response parsing failed: %w", err)
+		}
+		
+		// Apply confidence-based filtering
+		confidenceThreshold := 0.7 // Configurable threshold
+		filtered := localExtractor.filterByConfidence(results, confidenceThreshold)
+		
+		// If we have high-confidence results, use them
+		if len(filtered) > 0 {
+			return filtered, nil
+		}
+		
+		// If no high-confidence results, return all results for fallback processing
+		return results, nil
+	}
+	
+	// Fallback to standard extraction for non-local extractors
+	return e.llmExtractor.Extract(content)
+}
+
+// mergeResults combines regex and LLM results with enhanced merchant/description handling
 func (e *TrackingExtractor) mergeResults(regexResults, llmResults []email.TrackingInfo) []email.TrackingInfo {
 	merged := make(map[string]*email.TrackingInfo)
 	
@@ -560,11 +599,19 @@ func (e *TrackingExtractor) mergeResults(regexResults, llmResults []email.Tracki
 			if llmResult.Confidence > existing.Confidence {
 				existing.Confidence = llmResult.Confidence
 			}
-			if llmResult.Description != "" && existing.Description == "" {
-				existing.Description = llmResult.Description
+			
+			// Enhanced description merging with merchant information
+			enhancedDesc := e.combineDescriptionAndMerchant(llmResult.Description, llmResult.Merchant)
+			if enhancedDesc != "" && existing.Description == "" {
+				existing.Description = enhancedDesc
+			} else if enhancedDesc != "" && llmResult.Confidence > existing.Confidence {
+				existing.Description = enhancedDesc
 			}
+			
 			existing.Source = "hybrid"
 		} else {
+			// For new LLM results, combine description and merchant
+			llmResult.Description = e.combineDescriptionAndMerchant(llmResult.Description, llmResult.Merchant)
 			merged[key] = &llmResult
 		}
 	}
@@ -576,6 +623,24 @@ func (e *TrackingExtractor) mergeResults(regexResults, llmResults []email.Tracki
 	}
 	
 	return results
+}
+
+// combineDescriptionAndMerchant formats description with merchant information
+func (e *TrackingExtractor) combineDescriptionAndMerchant(description, merchant string) string {
+	if description == "" && merchant == "" {
+		return ""
+	}
+	
+	if description == "" {
+		return fmt.Sprintf("Package from %s", merchant)
+	}
+	
+	if merchant == "" {
+		return description
+	}
+	
+	// Format as "Product description from Merchant"
+	return fmt.Sprintf("%s from %s", description, merchant)
 }
 
 // filterAndSort applies final filtering and sorts results
