@@ -34,7 +34,7 @@ export function Layout({ children }: LayoutProps) {
               </div>
               
               {/* Desktop Navigation links */}
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-1">
+              <div className="hidden sm:ml-6 sm:flex sm:space-x-1 sm:items-center">
                 {navigation.map((item) => {
                   const isActive = location.pathname === item.href;
                   return (

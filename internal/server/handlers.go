@@ -225,6 +225,14 @@ func (hw *HandlerWrappers) RegisterChiRoutes(r chi.Router) {
 		r.Delete("/shipments/{id}", hw.shipmentHandler.DeleteShipment)
 		r.Get("/shipments/{id}/events", hw.shipmentHandler.GetShipmentEvents)
 		r.Post("/shipments/{id}/refresh", hw.shipmentHandler.RefreshShipment)
+		
+		// Email-related routes
+		r.Get("/shipments/{id}/emails", hw.emailHandler.GetShipmentEmails)
+		r.Get("/emails/{thread_id}/thread", hw.emailHandler.GetEmailThread)
+		r.Get("/emails/{email_id}/body", hw.emailHandler.GetEmailBody)
+		r.Post("/emails/{email_id}/link/{shipment_id}", hw.emailHandler.LinkEmailToShipment)
+		r.Delete("/emails/{email_id}/link/{shipment_id}", hw.emailHandler.UnlinkEmailFromShipment)
+		
 		r.Get("/health", hw.healthHandler.HealthCheck)
 		r.Get("/carriers", hw.carrierHandler.GetCarriers)
 	})

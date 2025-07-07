@@ -10,7 +10,9 @@ import type {
   RefreshResponse,
   HealthStatus,
   APIError,
-  DashboardStats
+  DashboardStats,
+  EmailEntry,
+  EmailThreadResponse
 } from '../types/api';
 
 // Create axios instance with base configuration
@@ -119,6 +121,22 @@ export const apiService = {
   // Dashboard stats
   async getDashboardStats(): Promise<DashboardStats> {
     const response = await api.get<DashboardStats>('/dashboard/stats');
+    return response.data;
+  },
+
+  // Emails
+  async getShipmentEmails(shipmentId: number): Promise<EmailEntry[]> {
+    const response = await api.get<EmailEntry[]>(`/shipments/${shipmentId}/emails`);
+    return response.data;
+  },
+
+  async getEmailThread(threadId: string): Promise<EmailThreadResponse> {
+    const response = await api.get<EmailThreadResponse>(`/emails/${threadId}/thread`);
+    return response.data;
+  },
+
+  async getEmailBody(emailId: string): Promise<{ plain_text: string; html_text: string; subject: string; from: string; date: string }> {
+    const response = await api.get<{ plain_text: string; html_text: string; subject: string; from: string; date: string }>(`/emails/${emailId}/body`);
     return response.data;
   },
 };

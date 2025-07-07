@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Package, Search, Plus, RefreshCw, Eye } from 'lucide-react';
 import { useShipments } from '../hooks/api';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,8 @@ import { sanitizePlainText } from '../lib/sanitize';
 
 
 export function ShipmentList() {
-  const { data: shipments, isLoading, refetch } = useShipments();
+  const navigate = useNavigate();
+  const { data: shipments, isLoading, refetch, isFetching } = useShipments();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCarrier, setFilterCarrier] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -36,6 +37,20 @@ export function ShipmentList() {
   // Get unique carriers for filter
   const carriers = [...new Set(shipments?.map(s => s.carrier) || [])];
 
+  // Handle row click to navigate to shipment detail
+  const handleRowClick = (shipmentId: number) => {
+    navigate(`/shipments/${shipmentId}`);
+  };
+
+  // Handle refresh with feedback
+  const handleRefresh = async () => {
+    try {
+      await refetch();
+    } catch (error) {
+      console.error('Failed to refresh shipments:', error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -49,9 +64,9 @@ export function ShipmentList() {
           </p>
         </div>
         <div className="mt-4 flex space-x-3 md:mt-0 md:ml-4">
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
+          <Button variant="outline" onClick={handleRefresh} disabled={isFetching}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Refreshing...' : 'Refresh'}
           </Button>
           <Button asChild>
             <Link to="/shipments/new">
@@ -141,38 +156,45 @@ export function ShipmentList() {
               )}
             </div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table className="table-fixed min-w-[800px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Package</TableHead>
-                  <TableHead>Tracking Number</TableHead>
-                  <TableHead>Carrier</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[200px]">Package</TableHead>
+                  <TableHead className="w-[180px]">Tracking Number</TableHead>
+                  <TableHead className="w-[100px]">Carrier</TableHead>
+                  <TableHead className="w-[120px]">Status</TableHead>
+                  <TableHead className="w-[100px]">Created</TableHead>
+                  <TableHead className="w-[80px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredShipments.map((shipment) => (
-                  <TableRow key={shipment.id}>
-                    <TableCell className="font-medium">
-                      {sanitizePlainText(shipment.description)}
+                  <TableRow 
+                    key={shipment.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => handleRowClick(shipment.id)}
+                  >
+                    <TableCell className="font-medium w-[200px] whitespace-normal">
+                      <div className="line-clamp-2 max-w-[200px]">
+                        {sanitizePlainText(shipment.description)}
+                      </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[180px]">
                       <code className="text-sm text-muted-foreground">
                         {shipment.tracking_number}
                       </code>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[100px]">
                       {shipment.carrier.toUpperCase()}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[120px]">
                       <ShipmentStatusBadge shipment={shipment} />
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="text-muted-foreground w-[100px]">
                       {formatDateOnly(shipment.created_at)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right w-[80px]" onClick={(e) => e.stopPropagation()}>
                       <Button variant="ghost" size="sm" asChild>
                         <Link to={`/shipments/${shipment.id}`}>
                           <Eye className="h-4 w-4" />
@@ -183,6 +205,7 @@ export function ShipmentList() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

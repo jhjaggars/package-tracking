@@ -4,6 +4,7 @@ import { useShipment, useShipmentEvents, useRefreshShipment, useDeleteShipment }
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge, DateFormatter } from '../components/shared';
+import { EmailSection } from '../components/emails';
 import type { TrackingEvent } from '../types/api';
 import { sanitizePlainText } from '../lib/sanitize';
 
@@ -219,6 +220,9 @@ export function ShipmentDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Related Emails */}
+      <EmailSection shipmentId={shipmentId} />
     </div>
   );
 }

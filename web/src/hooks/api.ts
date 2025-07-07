@@ -150,3 +150,28 @@ export function useRefreshShipment() {
     },
   });
 }
+
+// Email hooks
+export function useShipmentEmails(shipmentId: number) {
+  return useQuery({
+    queryKey: ['shipments', shipmentId, 'emails'],
+    queryFn: () => apiService.getShipmentEmails(shipmentId),
+    enabled: !!shipmentId,
+  });
+}
+
+export function useEmailThread(threadId: string) {
+  return useQuery({
+    queryKey: ['emails', threadId, 'thread'],
+    queryFn: () => apiService.getEmailThread(threadId),
+    enabled: !!threadId,
+  });
+}
+
+export function useEmailBody(emailId: string) {
+  return useQuery({
+    queryKey: ['emails', emailId, 'body'],
+    queryFn: () => apiService.getEmailBody(emailId),
+    enabled: !!emailId,
+  });
+}

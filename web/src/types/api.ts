@@ -84,3 +84,40 @@ export type ShipmentStatus =
 
 // Carrier codes
 export type CarrierCode = 'ups' | 'usps' | 'fedex' | 'dhl';
+
+// Email types
+export interface EmailEntry {
+  id: number;
+  gmail_message_id: string;
+  gmail_thread_id: string;
+  from: string;
+  subject: string;
+  date: string;
+  body_text: string;
+  body_html: string;
+  internal_timestamp: string;
+  scan_method: string;
+  processed_at: string;
+  status: string;
+  tracking_numbers: string;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailThread {
+  id: number;
+  gmail_thread_id: string;
+  subject: string;
+  participants: string;
+  message_count: number;
+  first_message_date: string;
+  last_message_date: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailThreadResponse {
+  thread: EmailThread;
+  emails: EmailEntry[];
+}

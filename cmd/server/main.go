@@ -152,6 +152,7 @@ func main() {
 	carrierHandler := handlers.NewCarrierHandler(db)
 	dashboardHandler := handlers.NewDashboardHandler(db)
 	adminHandler := handlers.NewAdminHandler(trackingUpdater)
+	emailHandler := handlers.NewEmailHandler(db)
 	staticHandler := handlers.NewStaticHandler(staticFS)
 
 	// API routes
@@ -163,6 +164,14 @@ func main() {
 		r.Delete("/shipments/{id}", shipmentHandler.DeleteShipment)
 		r.Get("/shipments/{id}/events", shipmentHandler.GetShipmentEvents)
 		r.Post("/shipments/{id}/refresh", shipmentHandler.RefreshShipment)
+		
+		// Email-related routes
+		r.Get("/shipments/{id}/emails", emailHandler.GetShipmentEmails)
+		r.Get("/emails/{thread_id}/thread", emailHandler.GetEmailThread)
+		r.Get("/emails/{email_id}/body", emailHandler.GetEmailBody)
+		r.Post("/emails/{email_id}/link/{shipment_id}", emailHandler.LinkEmailToShipment)
+		r.Delete("/emails/{email_id}/link/{shipment_id}", emailHandler.UnlinkEmailFromShipment)
+		
 		r.Get("/health", healthHandler.HealthCheck)
 		r.Get("/carriers", carrierHandler.GetCarriers)
 		r.Get("/dashboard/stats", dashboardHandler.GetStats)
