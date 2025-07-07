@@ -105,9 +105,9 @@ func (h *StaticHandler) setSecurityHeaders(w http.ResponseWriter) {
 	// Content Security Policy - restrict resource loading
 	csp := "default-src 'self'; " +
 		"script-src 'self' 'unsafe-inline'; " +
-		"style-src 'self' 'unsafe-inline'; " +
+		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
 		"img-src 'self' data: https:; " +
-		"font-src 'self' data:; " +
+		"font-src 'self' data: https://fonts.gstatic.com; " +
 		"connect-src 'self'; " +
 		"frame-ancestors 'none';"
 	w.Header().Set("Content-Security-Policy", csp)

@@ -172,6 +172,17 @@ func LoadEmailConfigWithEnvFile(envFile string) (*EmailConfig, error) {
 			DebugMode:           getEnvBoolOrDefault("EMAIL_DEBUG_MODE", false),
 		},
 		
+		TimeBased: TimeBasedConfig{
+			Enabled:              getEnvBoolOrDefault("EMAIL_TIME_BASED_ENABLED", true),
+			ScanDays:             getEnvIntOrDefault("EMAIL_SCAN_DAYS", 7),
+			BodyStorageEnabled:   getEnvBoolOrDefault("EMAIL_BODY_STORAGE", true),
+			RetentionDays:        getEnvIntOrDefault("EMAIL_RETENTION_DAYS", 30),
+			MaxEmailsPerScan:     getEnvIntOrDefault("EMAIL_MAX_PER_SCAN", 100),
+			UnreadOnly:           getEnvBoolOrDefault("EMAIL_UNREAD_ONLY", false),
+			RetryCount:           getEnvIntOrDefault("EMAIL_RETRY_COUNT", 3),
+			RetryDelay:           getEnvDurationOrDefault("EMAIL_RETRY_DELAY", "1s"),
+		},
+		
 		API: APIConfig{
 			URL:           getEnvOrDefault("EMAIL_API_URL", "http://localhost:8080"),
 			Timeout:       getEnvDurationOrDefault("EMAIL_API_TIMEOUT", "30s"),

@@ -28,14 +28,14 @@ function StatCard({
 
   useEffect(() => {
     // Skip animation in test environment
-    if (import.meta.env?.MODE === 'test' || process.env.NODE_ENV === 'test') {
+    if (import.meta.env?.MODE === 'test') {
       setAnimatedValue(numericValue);
       return;
     }
     
     if (!loading && numericValue > 0) {
-      let timer: NodeJS.Timeout;
-      let counter: NodeJS.Timeout;
+      let timer: number;
+      let counter: number;
       
       timer = setTimeout(() => {
         let start = 0;

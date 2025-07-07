@@ -31,6 +31,7 @@ import (
 	"package-tracking/internal/api"
 	"package-tracking/internal/carriers"
 	"package-tracking/internal/config"
+	"package-tracking/internal/database"
 	"package-tracking/internal/email"
 	"package-tracking/internal/parser"
 	"package-tracking/internal/workers"
@@ -71,15 +72,12 @@ CONFIGURATION:
         GMAIL_USERNAME          - Gmail username/email
         GMAIL_APP_PASSWORD      - Gmail app-specific password
         
-    Search Configuration:
-        GMAIL_SEARCH_QUERY      - Custom Gmail search query
-        GMAIL_SEARCH_AFTER_DAYS - Only process emails from last N days (default: 30)
-        GMAIL_SEARCH_UNREAD_ONLY - Only process unread emails (default: false)
-        GMAIL_SEARCH_MAX_RESULTS - Maximum emails per search (default: 100)
-        
-    Processing Configuration:
-        EMAIL_CHECK_INTERVAL    - How often to check for new emails (default: 5m)
-        EMAIL_MAX_PER_RUN       - Maximum emails to process per run (default: 50)
+    Time-Based Processing Configuration:
+        EMAIL_SCAN_DAYS         - Number of days to scan back for emails (default: 7)
+        EMAIL_BODY_STORAGE      - Store full email bodies for analysis (default: true)
+        EMAIL_RETENTION_DAYS    - Days to retain email bodies before cleanup (default: 30)
+        EMAIL_CHECK_INTERVAL    - How often to scan for new emails (default: 5m)
+        EMAIL_MAX_PER_SCAN      - Maximum emails to process per scan (default: 100)
         EMAIL_DRY_RUN           - Only extract tracking numbers, don't create shipments (default: false)
         EMAIL_STATE_DB_PATH     - SQLite database for processing state (default: ./email-state.db)
         EMAIL_MIN_CONFIDENCE    - Minimum confidence for tracking number extraction (default: 0.5)
@@ -115,7 +113,13 @@ EXAMPLES:
     
     # Using .env file with dry run override
     echo "EMAIL_DRY_RUN=false" > .env.test
-    email-tracker --config=.env.test --dry-run`,
+    email-tracker --config=.env.test --dry-run
+    
+    # Time-based scanning configuration
+    echo "EMAIL_SCAN_DAYS=14" > .env.custom
+    echo "EMAIL_BODY_STORAGE=true" >> .env.custom
+    echo "EMAIL_RETENTION_DAYS=60" >> .env.custom
+    email-tracker --config=.env.custom`,
 	Version: "1.0.0",
 	RunE:    runEmailTracker,
 }
@@ -282,38 +286,61 @@ func runEmailTracker(cmd *cobra.Command, args []string) error {
 	
 	logger.Info("API client initialized successfully", "url", cfg.API.URL)
 	
-	// Initialize email processor
-	processorConfig := &workers.EmailProcessorConfig{
-		CheckInterval:     cfg.Processing.CheckInterval,
-		SearchQuery:       cfg.GetSearchQuery(),
-		SearchAfterDays:   cfg.Search.AfterDays,
-		MaxEmailsPerRun:   cfg.Processing.MaxEmailsPerRun,
-		UnreadOnly:        cfg.Search.UnreadOnly,
-		DryRun:            cfg.Processing.DryRun,
-		RetryCount:        cfg.API.RetryCount,
-		RetryDelay:        cfg.API.RetryDelay,
-		ProcessingTimeout: cfg.Processing.ProcessingTimeout,
+	// Initialize database for time-based processing
+	db, err := database.Open(cfg.Processing.StateDBPath)
+	if err != nil {
+		logger.Error("Failed to initialize database", "error", err)
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer db.Close()
+	
+	// Initialize stores
+	emailStore := db.Emails
+	shipmentStore := db.Shipments
+	
+	// Initialize time-based email processor
+	timeProcessorConfig := &workers.TimeBasedEmailProcessorConfig{
+		ScanDays:           cfg.TimeBased.ScanDays,
+		BodyStorageEnabled: cfg.TimeBased.BodyStorageEnabled,
+		RetentionDays:      cfg.TimeBased.RetentionDays,
+		MaxEmailsPerScan:   cfg.TimeBased.MaxEmailsPerScan,
+		UnreadOnly:         cfg.TimeBased.UnreadOnly,
+		CheckInterval:      cfg.Processing.CheckInterval,
+		ProcessingTimeout:  cfg.Processing.ProcessingTimeout,
+		RetryCount:         cfg.TimeBased.RetryCount,
+		RetryDelay:         cfg.TimeBased.RetryDelay,
+		DryRun:             cfg.Processing.DryRun,
 	}
 	
-	processor := workers.NewEmailProcessor(
-		processorConfig,
-		emailClient,
+	// Cast email client to time-based interface
+	timeBasedClient, ok := emailClient.(workers.TimeBasedEmailClient)
+	if !ok {
+		logger.Error("Email client does not support time-based operations")
+		return fmt.Errorf("email client does not implement TimeBasedEmailClient interface")
+	}
+	
+	timeProcessor := workers.NewTimeBasedEmailProcessor(
+		timeProcessorConfig,
+		timeBasedClient,
 		extractor,
-		stateManager,
+		emailStore,
+		shipmentStore,
 		apiClient,
 		logger,
 	)
 	
-	logger.Info("Email processor initialized")
+	logger.Info("Time-based email processor initialized")
 	
-	// Start the email processor
-	processor.Start()
-	defer processor.Stop()
+	// Start the time-based email processor
+	go startTimeBasedProcessor(timeProcessor, logger)
+	defer func() {
+		logger.Info("Stopping time-based email processor")
+	}()
 	
 	logger.Info("Email tracker service started successfully")
 	
 	// Handle graceful shutdown
-	if err := handleSignals(processor, logger); err != nil {
+	if err := handleSignals(timeProcessor, logger); err != nil {
 		logger.Error("Service error", "error", err)
 		return fmt.Errorf("service error: %w", err)
 	}
@@ -351,8 +378,38 @@ func createEmailClient(cfg *config.EmailConfig, logger *slog.Logger) (email.Emai
 	}
 }
 
+// startTimeBasedProcessor starts the time-based email processor with periodic scanning
+func startTimeBasedProcessor(processor *workers.TimeBasedEmailProcessor, logger *slog.Logger) {
+	// Perform initial scan after a short delay
+	time.Sleep(10 * time.Second)
+	
+	// Get the last scan time (start from 7 days ago if no previous scan)
+	since := time.Now().AddDate(0, 0, -7)
+	
+	logger.Info("Starting initial time-based email scan", "since", since)
+	if err := processor.ProcessEmailsSince(since); err != nil {
+		logger.Error("Initial email processing failed", "error", err)
+	}
+	
+	// Start periodic scanning
+	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			// Process emails since last 10 minutes to catch any new ones
+			since := time.Now().Add(-10 * time.Minute)
+			logger.Debug("Performing scheduled email scan", "since", since)
+			if err := processor.ProcessEmailsSince(since); err != nil {
+				logger.Error("Scheduled email processing failed", "error", err)
+			}
+		}
+	}
+}
+
 // handleSignals handles graceful shutdown on system signals
-func handleSignals(processor *workers.EmailProcessor, logger *slog.Logger) error {
+func handleSignals(processor *workers.TimeBasedEmailProcessor, logger *slog.Logger) error {
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -371,9 +428,6 @@ func handleSignals(processor *workers.EmailProcessor, logger *slog.Logger) error
 		
 		// Start graceful shutdown
 		logger.Info("Starting graceful shutdown...")
-		
-		// Stop the email processor
-		processor.Stop()
 		
 		// Wait a bit for processor to finish current operations
 		time.Sleep(2 * time.Second)
