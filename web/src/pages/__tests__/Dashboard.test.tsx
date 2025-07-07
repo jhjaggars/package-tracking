@@ -33,9 +33,10 @@ describe('Dashboard', () => {
 
     renderWithProviders(<Dashboard />);
 
-    // Dashboard shows greeting instead of "Package Tracking Dashboard"
-    expect(screen.getByText(/Good/)).toBeInTheDocument(); // "Good morning!" or similar
-    expect(screen.getAllByText('••••')).toHaveLength(4); // Loading states for stats show dots
+    // Dashboard shows "Dashboard" header
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    // Loading states for stats show skeletons now
+    expect(screen.getAllByTestId('stat-skeleton')).toHaveLength(4);
   });
 
   it('renders dashboard stats correctly', async () => {
@@ -121,10 +122,10 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText('Ready to track your first package?')).toBeInTheDocument();
+      expect(screen.getByText('No shipments yet')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Add your tracking number and watch the magic happen as we keep you updated on every step of your delivery journey.')).toBeInTheDocument();
+    expect(screen.getByText('Get started by adding your first tracking number.')).toBeInTheDocument();
     expect(screen.getByText('Add Your First Shipment')).toBeInTheDocument();
   });
 
