@@ -1,12 +1,14 @@
 package workers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"package-tracking/internal/carriers"
 	"package-tracking/internal/database"
 	"package-tracking/internal/email"
 )
@@ -18,14 +20,49 @@ type TrackingExtractor interface {
 
 // TimeBasedEmailProcessor handles time-based email scanning with body storage
 type TimeBasedEmailProcessor struct {
-	config       *TimeBasedEmailProcessorConfig
-	emailClient  TimeBasedEmailClient
-	extractor    TrackingExtractor
-	emailStore   *database.EmailStore
+	config        *TimeBasedEmailProcessorConfig
+	emailClient   TimeBasedEmailClient
+	extractor     TrackingExtractor
+	emailStore    *database.EmailStore
 	shipmentStore *database.ShipmentStore
-	apiClient    APIClient
-	logger       *slog.Logger
-	metrics      *TimeBasedProcessingMetrics
+	apiClient     APIClient
+	logger        *slog.Logger
+	metrics       *TimeBasedProcessingMetrics
+	factory       CarrierFactory // For validation
+	cacheManager  CacheManager   // For validation caching
+	rateLimiter   RateLimiter    // For validation rate limiting
+}
+
+// CacheManager interface for caching validation results
+type CacheManager interface {
+	Get(key interface{}) (*database.RefreshResponse, error)
+	Set(key interface{}, response *database.RefreshResponse) error
+	IsEnabled() bool
+}
+
+// RateLimiter interface for rate limiting validation requests
+type RateLimiter interface {
+	CheckValidationRateLimit(trackingNumber string) RateLimitResult
+}
+
+// RateLimitResult contains rate limiting information
+type RateLimitResult struct {
+	ShouldBlock   bool
+	RemainingTime time.Duration
+	Reason        string
+}
+
+// CarrierFactory interface for creating carrier clients
+type CarrierFactory interface {
+	CreateClient(carrier string) (carriers.Client, carriers.ClientType, error)
+	SetCarrierConfig(carrier string, config *carriers.CarrierConfig)
+}
+
+// ValidationResult represents the result of tracking number validation
+type ValidationResult struct {
+	IsValid        bool                     `json:"is_valid"`
+	TrackingEvents []database.TrackingEvent `json:"tracking_events"`
+	Error          error                    `json:"error,omitempty"`
 }
 
 // TimeBasedEmailProcessorConfig configures the time-based email processor
@@ -37,6 +74,7 @@ type TimeBasedEmailProcessorConfig struct {
 	UnreadOnly         bool          `json:"unread_only"`
 	CheckInterval      time.Duration `json:"check_interval"`
 	ProcessingTimeout  time.Duration `json:"processing_timeout"`
+	ValidationTimeout  time.Duration `json:"validation_timeout"` // Configurable timeout for validation
 	RetryCount         int           `json:"retry_count"`
 	RetryDelay         time.Duration `json:"retry_delay"`
 	DryRun             bool          `json:"dry_run"`
@@ -85,7 +123,159 @@ func NewTimeBasedEmailProcessor(
 		apiClient:     apiClient,
 		logger:        logger,
 		metrics:       &TimeBasedProcessingMetrics{},
+		factory:       nil, // Will be set separately if validation is needed
+		cacheManager:  nil, // Will be set separately if caching is needed
+		rateLimiter:   nil, // Will be set separately if rate limiting is needed
 	}
+}
+
+// validateTracking validates a tracking number by performing a carrier lookup
+// This method integrates with the existing refresh system for caching and rate limiting
+func (p *TimeBasedEmailProcessor) validateTracking(ctx context.Context, trackingNumber, carrier string) (*ValidationResult, error) {
+	// Check if factory is available for validation
+	if p.factory == nil {
+		return &ValidationResult{
+			IsValid: false,
+			Error:   fmt.Errorf("carrier factory not configured for validation"),
+		}, fmt.Errorf("carrier factory not configured")
+	}
+
+	// FR2: Cache Integration - Check cache first if enabled
+	// Include carrier in cache key to prevent collisions between carriers with similar tracking number formats
+	cacheKey := fmt.Sprintf("validation:%s:%s", carrier, trackingNumber)
+	if p.cacheManager != nil && p.cacheManager.IsEnabled() {
+		if cachedResponse, err := p.cacheManager.Get(cacheKey); err == nil && cachedResponse != nil {
+			p.logger.InfoContext(ctx, "Serving cached validation response",
+				"tracking_number", trackingNumber,
+				"carrier", carrier,
+				"cache_key", cacheKey)
+			
+			return &ValidationResult{
+				IsValid:        true,
+				TrackingEvents: cachedResponse.Events,
+				Error:          nil,
+			}, nil
+		}
+	}
+
+	// FR3: Rate Limiting Integration - Check rate limits
+	if p.rateLimiter != nil {
+		rateLimitResult := p.rateLimiter.CheckValidationRateLimit(trackingNumber)
+		if rateLimitResult.ShouldBlock {
+			return &ValidationResult{
+				IsValid: false,
+				Error:   fmt.Errorf("rate limit exceeded: %s", rateLimitResult.Reason),
+			}, fmt.Errorf("rate limit exceeded for tracking %s: %s", trackingNumber, rateLimitResult.Reason)
+		}
+	}
+
+	// Create carrier client
+	client, _, err := p.factory.CreateClient(carrier)
+	if err != nil {
+		return &ValidationResult{
+			IsValid: false,
+			Error:   err,
+		}, fmt.Errorf("failed to create carrier client: %w", err)
+	}
+
+	// Create tracking request
+	req := &carriers.TrackingRequest{
+		TrackingNumbers: []string{trackingNumber},
+		Carrier:         carrier,
+	}
+
+	// Perform the tracking call with configurable timeout
+	validationTimeout := 120 * time.Second // Default timeout
+	if p.config.ValidationTimeout > 0 {
+		validationTimeout = p.config.ValidationTimeout
+	}
+	trackingCtx, cancel := context.WithTimeout(ctx, validationTimeout)
+	defer cancel()
+
+	resp, err := client.Track(trackingCtx, req)
+	if err != nil {
+		p.logger.WarnContext(ctx, "Tracking validation failed",
+			"tracking_number", trackingNumber,
+			"carrier", carrier,
+			"error", err)
+		return &ValidationResult{
+			IsValid: false,
+			Error:   err,
+		}, err
+	}
+
+	// Process response
+	if len(resp.Results) == 0 {
+		return &ValidationResult{
+			IsValid: false,
+			Error:   fmt.Errorf("no tracking results returned"),
+		}, fmt.Errorf("no tracking results returned")
+	}
+
+	// Convert carrier events to database events for compatibility
+	trackingInfo := resp.Results[0]
+	// Pre-allocate slice for better memory efficiency
+	events := make([]database.TrackingEvent, 0, len(trackingInfo.Events))
+	
+	for _, event := range trackingInfo.Events {
+		dbEvent := database.TrackingEvent{
+			ShipmentID:  -1, // Use -1 to indicate validation context (not associated with shipment yet)
+			Timestamp:   event.Timestamp,
+			Location:    event.Location,
+			Status:      string(event.Status),
+			Description: event.Description,
+			// Note: database.TrackingEvent doesn't have Details field, combining with Description
+		}
+		// If there are details, append them to the description
+		if event.Details != "" {
+			if dbEvent.Description != "" {
+				dbEvent.Description += " - " + event.Details
+			} else {
+				dbEvent.Description = event.Details
+			}
+		}
+		events = append(events, dbEvent)
+	}
+
+	// FR2: Cache the successful validation result
+	if p.cacheManager != nil && p.cacheManager.IsEnabled() {
+		validationResponse := &database.RefreshResponse{
+			ShipmentID:  -1, // Use -1 to indicate validation context
+			UpdatedAt:   time.Now(),
+			EventsAdded: len(events),
+			TotalEvents: len(events),
+			Events:      events,
+		}
+		
+		if err := p.cacheManager.Set(cacheKey, validationResponse); err != nil {
+			p.logger.WarnContext(ctx, "Failed to cache validation response",
+				"tracking_number", trackingNumber,
+				"carrier", carrier,
+				"cache_key", cacheKey,
+				"error", err)
+			// Continue anyway - caching failure shouldn't break validation
+		} else {
+			p.logger.InfoContext(ctx, "Cached validation response",
+				"tracking_number", trackingNumber,
+				"carrier", carrier,
+				"cache_key", cacheKey,
+				"events_cached", len(events))
+		}
+	}
+
+	return &ValidationResult{
+		IsValid:        true,
+		TrackingEvents: events,
+		Error:          nil,
+	}, nil
+}
+
+// truncateForLogging truncates a string for safe logging
+func truncateForLogging(text string, maxLength int) string {
+	if len(text) <= maxLength {
+		return text
+	}
+	return text[:maxLength] + "..."
 }
 
 // ProcessEmailsSince processes all emails since the specified time using time-based scanning
@@ -314,6 +504,24 @@ func (p *TimeBasedEmailProcessor) createShipmentsAndLinks(trackingInfo []email.T
 				"carrier", tracking.Carrier)
 			continue
 		}
+
+		// Validate tracking number before creating shipment (FR1: Tracking Number Validation During Email Processing)
+		ctx := context.Background()
+		validationResult, err := p.validateTracking(ctx, tracking.Number, tracking.Carrier)
+		if err != nil || !validationResult.IsValid {
+			p.logger.WarnContext(ctx, "Tracking validation failed",
+				"tracking_number", tracking.Number,
+				"carrier", tracking.Carrier,
+				"email_subject", emailEntry.Subject,
+				"email_body", truncateForLogging(emailEntry.BodyText, 500),
+				"error", err)
+			continue // Skip this tracking number (FR1: Failure behavior)
+		}
+
+		p.logger.InfoContext(ctx, "Tracking number validated successfully",
+			"tracking_number", tracking.Number,
+			"carrier", tracking.Carrier,
+			"events_found", len(validationResult.TrackingEvents))
 
 		// Create shipment via API
 		if err := p.createShipment(tracking); err != nil {

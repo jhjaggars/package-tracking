@@ -1,0 +1,13 @@
+{
+  "id": "email-tracking-validation",
+  "started": "2025-01-07T14:42:00Z",
+  "lastUpdated": "2025-01-07T14:50:00Z",
+  "status": "active",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": [],
+  "relatedFeatures": []
+}

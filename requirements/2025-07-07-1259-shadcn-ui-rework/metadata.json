@@ -1,0 +1,24 @@
+{
+  "id": "shadcn-ui-rework",
+  "started": "2025-07-07T12:59:00Z",
+  "lastUpdated": "2025-07-07T12:59:00Z",
+  "status": "active",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": [
+    "web/src/components/ui/button.tsx",
+    "web/src/components/layout/Layout.tsx",
+    "web/src/pages/Dashboard.tsx",
+    "web/src/contexts/ThemeContext.tsx",
+    "web/package.json"
+  ],
+  "relatedFeatures": [
+    "theme-system",
+    "responsive-navigation",
+    "dashboard-stats",
+    "api-integration"
+  ]
+}

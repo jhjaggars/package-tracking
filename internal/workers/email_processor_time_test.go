@@ -168,6 +168,17 @@ func (m *MockTrackingExtractor) Extract(content *email.EmailContent) ([]email.Tr
 			},
 		}, nil
 	}
+	// Support UPS tracking number for validation tests
+	if strings.Contains(content.PlainText, "1Z999AA1234567890") {
+		return []email.TrackingInfo{
+			{
+				Number:   "1Z999AA1234567890",
+				Carrier:  "ups",
+				Source:   "mock",
+				Context:  "test",
+			},
+		}, nil
+	}
 	return []email.TrackingInfo{}, nil
 }
 
@@ -190,6 +201,7 @@ func setupTimeBasedProcessor(t *testing.T) (*TimeBasedEmailProcessor, *MockTimeB
 		UnreadOnly:        false,
 		CheckInterval:     5 * time.Minute,
 		ProcessingTimeout: 30 * time.Minute,
+		ValidationTimeout: 60 * time.Second, // Add validation timeout for consistency
 		RetryCount:        3,
 		RetryDelay:        time.Second,
 	}
