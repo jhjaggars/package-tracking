@@ -5,8 +5,26 @@
 
 set -e
 
-# Parse session name argument
-SESSION_NAME="${1:-package-tracker-dev}"
+# Parse command line arguments
+RESTART=false
+SESSION_NAME=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --restart)
+      RESTART=true
+      shift
+      ;;
+    *)
+      SESSION_NAME="$1"
+      shift
+      ;;
+  esac
+done
+
+# Set default session name if not provided
+SESSION_NAME="${SESSION_NAME:-package-tracker-dev}"
 
 echo "🚀 Starting Package Tracker Development Environment..."
 echo "📺 Session: $SESSION_NAME"
@@ -50,13 +68,19 @@ if ! command -v npm &> /dev/null; then
     exit 1
 fi
 
-# Check if session already exists
+# Check if session already exists and handle restart
 if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    echo "🔄 Tmux session '$SESSION_NAME' already exists"
-    echo "💡 To attach: tmux attach -t $SESSION_NAME"
-    echo "💡 To kill:   tmux kill-session -t $SESSION_NAME"
-    echo "💡 To list:   tmux list-sessions"
-    exit 0
+    if [ "$RESTART" = true ]; then
+        echo "🔄 Killing existing session '$SESSION_NAME' and restarting..."
+        tmux kill-session -t "$SESSION_NAME"
+    else
+        echo "🔄 Tmux session '$SESSION_NAME' already exists"
+        echo "💡 To attach: tmux attach -t $SESSION_NAME"
+        echo "💡 To kill:   tmux kill-session -t $SESSION_NAME"
+        echo "💡 To restart: $0 --restart"
+        echo "💡 To list:   tmux list-sessions"
+        exit 0
+    fi
 fi
 
 echo "📱 Installing frontend dependencies..."
@@ -104,6 +128,7 @@ echo "📺 Tmux Session Management:"
 echo "   Attach to session:    tmux attach -t $SESSION_NAME"
 echo "   List all sessions:    tmux list-sessions"
 echo "   Kill this session:    tmux kill-session -t $SESSION_NAME"
+echo "   Restart this session: $0 --restart"
 echo "   Detach from session:  Ctrl+b then d"
 echo ""
 echo "🎮 Inside tmux session:"
