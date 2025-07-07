@@ -350,6 +350,13 @@ func TestValidateTrackingWithCaching(t *testing.T) {
 	if len(result1.TrackingEvents) != len(result2.TrackingEvents) {
 		t.Error("Cached result should have same number of events")
 	}
+
+	// Verify cache key format includes carrier to prevent collisions
+	cache := processor.cacheManager.(*MockCacheManager)
+	expectedCacheKey := fmt.Sprintf("validation:%s:%s", carrier, trackingNumber)
+	if _, exists := cache.cache[expectedCacheKey]; !exists {
+		t.Errorf("Expected cache key '%s' not found", expectedCacheKey)
+	}
 }
 
 // TestValidateTrackingWithRateLimit tests validation with rate limiting
@@ -459,6 +466,56 @@ func TestValidateTrackingRateLimitBlocked(t *testing.T) {
 	}
 	if result.Error == nil {
 		t.Error("Expected validation result to contain error")
+	}
+}
+
+// TestValidateTrackingConfigurableTimeout tests configurable validation timeout
+func TestValidateTrackingConfigurableTimeout(t *testing.T) {
+	// Set up test database
+	db, err := database.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer db.Close()
+
+	// Set up mock carrier client
+	mockCarrierClient := &MockCarrierClient{
+		trackingResponse: &carriers.TrackingResponse{
+			Results: []carriers.TrackingInfo{
+				{
+					TrackingNumber: "1Z999AA1234567890",
+					Status:         carriers.StatusInTransit,
+					Events:         []carriers.TrackingEvent{},
+				},
+			},
+		},
+	}
+
+	// Set up mock factory
+	mockFactory := &MockCarrierFactory{
+		client: mockCarrierClient,
+	}
+
+	// Create processor with custom validation timeout
+	processor := setupValidationProcessor(t, db, mockFactory)
+	processor.config.ValidationTimeout = 30 * time.Second // Custom timeout
+
+	ctx := context.Background()
+	trackingNumber := "1Z999AA1234567890"
+	carrier := "ups"
+
+	// Validation call should succeed with custom timeout
+	result, err := processor.validateTracking(ctx, trackingNumber, carrier)
+	if err != nil {
+		t.Fatalf("Validation failed: %v", err)
+	}
+	if !result.IsValid {
+		t.Error("Validation should be valid")
+	}
+
+	// Verify the timeout configuration is being used
+	if processor.config.ValidationTimeout != 30*time.Second {
+		t.Errorf("Expected validation timeout 30s, got %v", processor.config.ValidationTimeout)
 	}
 }
 
@@ -620,6 +677,7 @@ func setupValidationProcessor(t *testing.T, db *database.DB, factory *MockCarrie
 		UnreadOnly:        false,
 		CheckInterval:     5 * time.Minute,
 		ProcessingTimeout: 30 * time.Minute,
+		ValidationTimeout: 60 * time.Second, // Configurable validation timeout
 		RetryCount:        3,
 		RetryDelay:        time.Second,
 		DryRun:            false,

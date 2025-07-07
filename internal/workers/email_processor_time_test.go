@@ -201,6 +201,7 @@ func setupTimeBasedProcessor(t *testing.T) (*TimeBasedEmailProcessor, *MockTimeB
 		UnreadOnly:        false,
 		CheckInterval:     5 * time.Minute,
 		ProcessingTimeout: 30 * time.Minute,
+		ValidationTimeout: 60 * time.Second, // Add validation timeout for consistency
 		RetryCount:        3,
 		RetryDelay:        time.Second,
 	}

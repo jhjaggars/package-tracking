@@ -74,6 +74,7 @@ type TimeBasedEmailProcessorConfig struct {
 	UnreadOnly         bool          `json:"unread_only"`
 	CheckInterval      time.Duration `json:"check_interval"`
 	ProcessingTimeout  time.Duration `json:"processing_timeout"`
+	ValidationTimeout  time.Duration `json:"validation_timeout"` // Configurable timeout for validation
 	RetryCount         int           `json:"retry_count"`
 	RetryDelay         time.Duration `json:"retry_delay"`
 	DryRun             bool          `json:"dry_run"`
@@ -140,12 +141,14 @@ func (p *TimeBasedEmailProcessor) validateTracking(ctx context.Context, tracking
 	}
 
 	// FR2: Cache Integration - Check cache first if enabled
-	cacheKey := fmt.Sprintf("validation:%s", trackingNumber)
+	// Include carrier in cache key to prevent collisions between carriers with similar tracking number formats
+	cacheKey := fmt.Sprintf("validation:%s:%s", carrier, trackingNumber)
 	if p.cacheManager != nil && p.cacheManager.IsEnabled() {
 		if cachedResponse, err := p.cacheManager.Get(cacheKey); err == nil && cachedResponse != nil {
 			p.logger.InfoContext(ctx, "Serving cached validation response",
 				"tracking_number", trackingNumber,
-				"carrier", carrier)
+				"carrier", carrier,
+				"cache_key", cacheKey)
 			
 			return &ValidationResult{
 				IsValid:        true,
@@ -181,8 +184,12 @@ func (p *TimeBasedEmailProcessor) validateTracking(ctx context.Context, tracking
 		Carrier:         carrier,
 	}
 
-	// Perform the tracking call with timeout
-	trackingCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	// Perform the tracking call with configurable timeout
+	validationTimeout := 120 * time.Second // Default timeout
+	if p.config.ValidationTimeout > 0 {
+		validationTimeout = p.config.ValidationTimeout
+	}
+	trackingCtx, cancel := context.WithTimeout(ctx, validationTimeout)
 	defer cancel()
 
 	resp, err := client.Track(trackingCtx, req)
@@ -207,11 +214,12 @@ func (p *TimeBasedEmailProcessor) validateTracking(ctx context.Context, tracking
 
 	// Convert carrier events to database events for compatibility
 	trackingInfo := resp.Results[0]
-	var events []database.TrackingEvent
+	// Pre-allocate slice for better memory efficiency
+	events := make([]database.TrackingEvent, 0, len(trackingInfo.Events))
 	
 	for _, event := range trackingInfo.Events {
 		dbEvent := database.TrackingEvent{
-			ShipmentID:  0, // Will be set when shipment is created
+			ShipmentID:  -1, // Use -1 to indicate validation context (not associated with shipment yet)
 			Timestamp:   event.Timestamp,
 			Location:    event.Location,
 			Status:      string(event.Status),
@@ -232,7 +240,7 @@ func (p *TimeBasedEmailProcessor) validateTracking(ctx context.Context, tracking
 	// FR2: Cache the successful validation result
 	if p.cacheManager != nil && p.cacheManager.IsEnabled() {
 		validationResponse := &database.RefreshResponse{
-			ShipmentID:  0, // Not applicable for validation
+			ShipmentID:  -1, // Use -1 to indicate validation context
 			UpdatedAt:   time.Now(),
 			EventsAdded: len(events),
 			TotalEvents: len(events),
@@ -242,8 +250,16 @@ func (p *TimeBasedEmailProcessor) validateTracking(ctx context.Context, tracking
 		if err := p.cacheManager.Set(cacheKey, validationResponse); err != nil {
 			p.logger.WarnContext(ctx, "Failed to cache validation response",
 				"tracking_number", trackingNumber,
+				"carrier", carrier,
+				"cache_key", cacheKey,
 				"error", err)
 			// Continue anyway - caching failure shouldn't break validation
+		} else {
+			p.logger.InfoContext(ctx, "Cached validation response",
+				"tracking_number", trackingNumber,
+				"carrier", carrier,
+				"cache_key", cacheKey,
+				"events_cached", len(events))
 		}
 	}
 
