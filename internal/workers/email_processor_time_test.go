@@ -168,6 +168,17 @@ func (m *MockTrackingExtractor) Extract(content *email.EmailContent) ([]email.Tr
 			},
 		}, nil
 	}
+	// Support UPS tracking number for validation tests
+	if strings.Contains(content.PlainText, "1Z999AA1234567890") {
+		return []email.TrackingInfo{
+			{
+				Number:   "1Z999AA1234567890",
+				Carrier:  "ups",
+				Source:   "mock",
+				Context:  "test",
+			},
+		}, nil
+	}
 	return []email.TrackingInfo{}, nil
 }
 
