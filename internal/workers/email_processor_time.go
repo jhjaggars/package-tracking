@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"package-tracking/internal/database"
@@ -53,6 +54,7 @@ type TimeBasedEmailClient interface {
 
 // TimeBasedProcessingMetrics tracks time-based processing statistics
 type TimeBasedProcessingMetrics struct {
+	mu                      sync.RWMutex
 	TotalScans              int64     `json:"total_scans"`
 	TotalEmailsScanned      int64     `json:"total_emails_scanned"`
 	EmailsWithBodiesStored  int64     `json:"emails_with_bodies_stored"`
@@ -89,7 +91,7 @@ func NewTimeBasedEmailProcessor(
 // ProcessEmailsSince processes all emails since the specified time using time-based scanning
 func (p *TimeBasedEmailProcessor) ProcessEmailsSince(since time.Time) error {
 	startTime := time.Now()
-	p.metrics.TotalScans++
+	p.metrics.incrementTotalScans()
 
 	p.logger.Info("Starting time-based email processing",
 		"since", since,
@@ -107,7 +109,7 @@ func (p *TimeBasedEmailProcessor) ProcessEmailsSince(since time.Time) error {
 		"count", len(messages),
 		"since", since)
 
-	p.metrics.TotalEmailsScanned += int64(len(messages))
+	p.metrics.addEmailsScanned(int64(len(messages)))
 
 	// Process each message
 	processed := 0
@@ -153,8 +155,7 @@ func (p *TimeBasedEmailProcessor) ProcessEmailsSince(since time.Time) error {
 
 	// Update metrics
 	duration := time.Since(startTime)
-	p.metrics.LastScanTime = time.Now()
-	p.metrics.AverageScanDuration = duration
+	p.metrics.updateScanMetrics(duration)
 
 	p.logger.Info("Time-based email processing completed",
 		"duration", duration,
@@ -185,8 +186,8 @@ func (p *TimeBasedEmailProcessor) PerformRetroactiveScan() error {
 
 	p.logger.Info("Retroactive scan retrieved messages", "count", len(messages))
 
-	p.metrics.LastRetroactiveScanTime = time.Now()
-	p.metrics.TotalEmailsScanned += int64(len(messages))
+	p.metrics.updateRetroactiveScanTime()
+	p.metrics.addEmailsScanned(int64(len(messages)))
 
 	// Process all retrieved messages
 	for _, msg := range messages {
@@ -251,7 +252,7 @@ func (p *TimeBasedEmailProcessor) processIndividualEmail(msg *email.EmailMessage
 			}
 		}
 
-		p.metrics.EmailsWithBodiesStored++
+		p.metrics.incrementEmailsWithBodiesStored()
 		logger.Debug("Stored email body", "compressed", len(emailEntry.BodyCompressed) > 0)
 	}
 
@@ -323,7 +324,7 @@ func (p *TimeBasedEmailProcessor) createShipmentsAndLinks(trackingInfo []email.T
 			continue
 		}
 
-		p.metrics.ShipmentsCreated++
+		p.metrics.incrementShipmentsCreated()
 
 		// Find the created shipment to get its ID
 		// This is a simplified approach - in a real implementation, we'd get the ID from the API response
@@ -334,7 +335,7 @@ func (p *TimeBasedEmailProcessor) createShipmentsAndLinks(trackingInfo []email.T
 				"tracking_number", tracking.Number,
 				"error", err)
 		} else {
-			p.metrics.AutomaticLinksCreated++
+			p.metrics.incrementAutomaticLinksCreated()
 		}
 	}
 
@@ -400,13 +401,84 @@ func (p *TimeBasedEmailProcessor) createOrUpdateThread(msg *email.EmailMessage) 
 		return fmt.Errorf("failed to create/update thread: %w", err)
 	}
 
-	p.metrics.ThreadsCreated++
+	p.metrics.incrementThreadsCreated()
 	return nil
 }
 
-// GetMetrics returns current processing metrics
+// incrementTotalScans safely increments the total scans counter
+func (m *TimeBasedProcessingMetrics) incrementTotalScans() {
+	m.mu.Lock()
+	m.TotalScans++
+	m.mu.Unlock()
+}
+
+// addEmailsScanned safely adds to the total emails scanned counter
+func (m *TimeBasedProcessingMetrics) addEmailsScanned(count int64) {
+	m.mu.Lock()
+	m.TotalEmailsScanned += count
+	m.mu.Unlock()
+}
+
+// incrementEmailsWithBodiesStored safely increments the emails with bodies stored counter
+func (m *TimeBasedProcessingMetrics) incrementEmailsWithBodiesStored() {
+	m.mu.Lock()
+	m.EmailsWithBodiesStored++
+	m.mu.Unlock()
+}
+
+// incrementThreadsCreated safely increments the threads created counter
+func (m *TimeBasedProcessingMetrics) incrementThreadsCreated() {
+	m.mu.Lock()
+	m.ThreadsCreated++
+	m.mu.Unlock()
+}
+
+// incrementAutomaticLinksCreated safely increments the automatic links created counter
+func (m *TimeBasedProcessingMetrics) incrementAutomaticLinksCreated() {
+	m.mu.Lock()
+	m.AutomaticLinksCreated++
+	m.mu.Unlock()
+}
+
+// incrementShipmentsCreated safely increments the shipments created counter
+func (m *TimeBasedProcessingMetrics) incrementShipmentsCreated() {
+	m.mu.Lock()
+	m.ShipmentsCreated++
+	m.mu.Unlock()
+}
+
+// updateScanMetrics safely updates scan-related metrics
+func (m *TimeBasedProcessingMetrics) updateScanMetrics(duration time.Duration) {
+	m.mu.Lock()
+	m.LastScanTime = time.Now()
+	m.AverageScanDuration = duration
+	m.mu.Unlock()
+}
+
+// updateRetroactiveScanTime safely updates retroactive scan time
+func (m *TimeBasedProcessingMetrics) updateRetroactiveScanTime() {
+	m.mu.Lock()
+	m.LastRetroactiveScanTime = time.Now()
+	m.mu.Unlock()
+}
+
+// GetMetrics returns current processing metrics (thread-safe copy)
 func (p *TimeBasedEmailProcessor) GetMetrics() *TimeBasedProcessingMetrics {
-	return p.metrics
+	p.metrics.mu.RLock()
+	defer p.metrics.mu.RUnlock()
+	
+	// Return a copy to prevent external modification
+	return &TimeBasedProcessingMetrics{
+		TotalScans:              p.metrics.TotalScans,
+		TotalEmailsScanned:      p.metrics.TotalEmailsScanned,
+		EmailsWithBodiesStored:  p.metrics.EmailsWithBodiesStored,
+		ThreadsCreated:          p.metrics.ThreadsCreated,
+		AutomaticLinksCreated:   p.metrics.AutomaticLinksCreated,
+		ShipmentsCreated:        p.metrics.ShipmentsCreated,
+		LastScanTime:            p.metrics.LastScanTime,
+		LastRetroactiveScanTime: p.metrics.LastRetroactiveScanTime,
+		AverageScanDuration:     p.metrics.AverageScanDuration,
+	}
 }
 
 // IsHealthy checks if the processor is healthy

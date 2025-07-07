@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,8 +40,8 @@ func (h *EmailHandler) GetShipmentEmails(w http.ResponseWriter, r *http.Request)
 	// Get emails linked to the shipment
 	emails, err := h.db.Emails.GetByShipmentID(shipmentID)
 	if err != nil {
-		// Log error but return empty array instead of error
-		// This is more user-friendly for non-existent shipments
+		log.Printf("ERROR: Failed to get emails for shipment %d: %v", shipmentID, err)
+		// Return empty array instead of error for better user experience
 		emails = []database.EmailBodyEntry{}
 	}
 
@@ -63,6 +64,7 @@ func (h *EmailHandler) GetEmailThread(w http.ResponseWriter, r *http.Request) {
 	// Get thread information
 	thread, err := h.db.Emails.GetThreadByGmailThreadID(threadID)
 	if err != nil {
+		log.Printf("ERROR: Failed to get thread %s: %v", threadID, err)
 		http.Error(w, "Thread not found", http.StatusNotFound)
 		return
 	}
@@ -70,6 +72,7 @@ func (h *EmailHandler) GetEmailThread(w http.ResponseWriter, r *http.Request) {
 	// Get all emails in the thread
 	emails, err := h.db.Emails.GetEmailsByThreadID(threadID)
 	if err != nil {
+		log.Printf("ERROR: Failed to get emails for thread %s: %v", threadID, err)
 		http.Error(w, "Failed to get thread emails", http.StatusInternalServerError)
 		return
 	}
@@ -101,6 +104,7 @@ func (h *EmailHandler) GetEmailBody(w http.ResponseWriter, r *http.Request) {
 	// Get email by Gmail message ID
 	email, err := h.db.Emails.GetByGmailMessageID(emailID)
 	if err != nil {
+		log.Printf("ERROR: Failed to get email %s: %v", emailID, err)
 		http.Error(w, "Email not found", http.StatusNotFound)
 		return
 	}
@@ -112,6 +116,7 @@ func (h *EmailHandler) GetEmailBody(w http.ResponseWriter, r *http.Request) {
 	if len(email.BodyCompressed) > 0 && bodyText == "" {
 		decompressed, err := database.DecompressEmailBody(email.BodyCompressed)
 		if err != nil {
+			log.Printf("ERROR: Failed to decompress email body for %s: %v", emailID, err)
 			http.Error(w, "Failed to decompress email body", http.StatusInternalServerError)
 			return
 		}

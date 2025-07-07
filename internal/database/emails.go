@@ -120,6 +120,48 @@ func (e *EmailStore) GetByShipmentID(shipmentID int) ([]EmailBodyEntry, error) {
 	return emails, rows.Err()
 }
 
+// GetByShipmentIDPaginated retrieves emails linked to a shipment with pagination
+func (e *EmailStore) GetByShipmentIDPaginated(shipmentID int, limit, offset int) ([]EmailBodyEntry, error) {
+	query := `SELECT pe.id, pe.gmail_message_id, pe.gmail_thread_id, pe.from_address, 
+		  pe.subject, pe.date, pe.body_text, pe.body_html, pe.body_compressed,
+		  pe.internal_timestamp, pe.scan_method, pe.processed_at, pe.status,
+		  pe.tracking_numbers, pe.error_message, pe.created_at, pe.updated_at
+		  FROM processed_emails pe
+		  JOIN email_shipments es ON pe.id = es.email_id
+		  WHERE es.shipment_id = ?
+		  ORDER BY pe.date DESC`
+	
+	// Add pagination if limit is specified
+	args := []interface{}{shipmentID}
+	if limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, limit, offset)
+	}
+	
+	rows, err := e.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var emails []EmailBodyEntry
+	for rows.Next() {
+		var email EmailBodyEntry
+		err := rows.Scan(
+			&email.ID, &email.GmailMessageID, &email.GmailThreadID, &email.From,
+			&email.Subject, &email.Date, &email.BodyText, &email.BodyHTML,
+			&email.BodyCompressed, &email.InternalTimestamp, &email.ScanMethod,
+			&email.ProcessedAt, &email.Status, &email.TrackingNumbers,
+			&email.ErrorMessage, &email.CreatedAt, &email.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		emails = append(emails, email)
+	}
+	
+	return emails, rows.Err()
+}
+
 // CreateOrUpdate creates or updates an email entry
 func (e *EmailStore) CreateOrUpdate(email *EmailBodyEntry) error {
 	// Check if email already exists

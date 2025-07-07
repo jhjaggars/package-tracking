@@ -43,6 +43,7 @@ type HandlerWrappers struct {
 	healthHandler   *handlers.HealthHandler
 	carrierHandler  *handlers.CarrierHandler
 	staticHandler   *handlers.StaticHandler
+	emailHandler    *handlers.EmailHandler
 }
 
 // NewHandlerWrappers creates new handler wrappers
@@ -58,6 +59,7 @@ func NewHandlerWrappers(db *database.DB) *HandlerWrappers {
 		healthHandler:   handlers.NewHealthHandler(db),
 		carrierHandler:  handlers.NewCarrierHandler(db),
 		staticHandler:   handlers.NewStaticHandler(nil), // Use filesystem fallback
+		emailHandler:    handlers.NewEmailHandler(db),
 	}
 }
 
@@ -134,6 +136,59 @@ func (hw *HandlerWrappers) ServeStatic(w http.ResponseWriter, r *http.Request, p
 	hw.staticHandler.ServeHTTP(w, r)
 }
 
+// GetShipmentEmails wraps the get shipment emails handler
+func (hw *HandlerWrappers) GetShipmentEmails(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	if _, ok := params["id"]; ok {
+		hw.emailHandler.GetShipmentEmails(w, r)
+	} else {
+		http.Error(w, "Missing shipment ID", http.StatusBadRequest)
+	}
+}
+
+// GetEmailThread wraps the get email thread handler
+func (hw *HandlerWrappers) GetEmailThread(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	if _, ok := params["thread_id"]; ok {
+		hw.emailHandler.GetEmailThread(w, r)
+	} else {
+		http.Error(w, "Missing thread ID", http.StatusBadRequest)
+	}
+}
+
+// GetEmailBody wraps the get email body handler
+func (hw *HandlerWrappers) GetEmailBody(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	if _, ok := params["email_id"]; ok {
+		hw.emailHandler.GetEmailBody(w, r)
+	} else {
+		http.Error(w, "Missing email ID", http.StatusBadRequest)
+	}
+}
+
+// LinkEmailToShipment wraps the link email to shipment handler
+func (hw *HandlerWrappers) LinkEmailToShipment(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	if _, ok := params["email_id"]; ok {
+		if _, ok := params["shipment_id"]; ok {
+			hw.emailHandler.LinkEmailToShipment(w, r)
+		} else {
+			http.Error(w, "Missing shipment ID", http.StatusBadRequest)
+		}
+	} else {
+		http.Error(w, "Missing email ID", http.StatusBadRequest)
+	}
+}
+
+// UnlinkEmailFromShipment wraps the unlink email from shipment handler
+func (hw *HandlerWrappers) UnlinkEmailFromShipment(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	if _, ok := params["email_id"]; ok {
+		if _, ok := params["shipment_id"]; ok {
+			hw.emailHandler.UnlinkEmailFromShipment(w, r)
+		} else {
+			http.Error(w, "Missing shipment ID", http.StatusBadRequest)
+		}
+	} else {
+		http.Error(w, "Missing email ID", http.StatusBadRequest)
+	}
+}
+
 // RegisterRoutes registers all routes with the router
 func (hw *HandlerWrappers) RegisterRoutes(router *Router) {
 	// API routes
@@ -144,6 +199,14 @@ func (hw *HandlerWrappers) RegisterRoutes(router *Router) {
 	router.DELETE("/api/shipments/{id}", hw.DeleteShipment)
 	router.GET("/api/shipments/{id}/events", hw.GetShipmentEvents)
 	router.POST("/api/shipments/{id}/refresh", hw.RefreshShipment)
+	
+	// Email-related routes (protected endpoints)
+	router.GET("/api/shipments/{id}/emails", hw.GetShipmentEmails)
+	router.GET("/api/emails/{thread_id}/thread", hw.GetEmailThread)
+	router.GET("/api/emails/{email_id}/body", hw.GetEmailBody)
+	router.POST("/api/emails/{email_id}/link/{shipment_id}", hw.LinkEmailToShipment)
+	router.DELETE("/api/emails/{email_id}/link/{shipment_id}", hw.UnlinkEmailFromShipment)
+	
 	router.GET("/api/health", hw.HealthCheck)
 	router.GET("/api/carriers", hw.GetCarriers)
 
