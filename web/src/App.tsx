@@ -3,7 +3,12 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import { Layout } from './components/layout/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { LoadingSpinner } from './components/ui/LoadingSpinner';
+// Simple loading component for Suspense fallback
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center min-h-[200px]">
+    <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-r-primary" />
+  </div>
+);
 import { ThemeProvider } from './contexts/ThemeContext';
 
 // Lazy load page components for code splitting
@@ -29,7 +34,7 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <Layout>
-            <Suspense fallback={<LoadingSpinner />}>
+            <Suspense fallback={<LoadingFallback />}>
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={

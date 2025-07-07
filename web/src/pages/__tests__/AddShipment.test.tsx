@@ -47,7 +47,8 @@ describe('AddShipment', () => {
 
     expect(screen.getByText('Add New Shipment')).toBeInTheDocument();
     expect(screen.getByLabelText('Tracking Number')).toBeInTheDocument();
-    // Carrier and Description are shown in later steps, so they won't be visible initially
+    expect(screen.getByText('Carrier')).toBeInTheDocument();
+    expect(screen.getByLabelText('Package Description')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /add shipment/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
   });
@@ -108,7 +109,7 @@ describe('AddShipment', () => {
     });
   });
 
-  it('progresses through form steps correctly', async () => {
+  it('detects carrier automatically from tracking number', async () => {
     const user = userEvent.setup();
     
     mockUseCarriers.mockReturnValue({
@@ -125,27 +126,18 @@ describe('AddShipment', () => {
 
     renderWithProviders(<AddShipment />);
 
-    // Initially, only tracking number should be visible
+    // All fields should be visible
     expect(screen.getByLabelText('Tracking Number')).toBeInTheDocument();
-    expect(screen.queryByText('Carrier')).not.toBeInTheDocument();
-    expect(screen.queryByText('Package Description')).not.toBeInTheDocument();
+    expect(screen.getByText('Carrier')).toBeInTheDocument();
+    expect(screen.getByLabelText('Package Description')).toBeInTheDocument();
 
-    // Type a long tracking number to trigger step progression
+    // Type a UPS tracking number to trigger auto-detection
     const trackingInput = screen.getByLabelText('Tracking Number');
     await user.type(trackingInput, '1Z999AA1234567890');
 
-    // Wait for step 2 to appear
+    // Carrier should be detected automatically (may detect as DHL for this pattern)
     await waitFor(() => {
-      expect(screen.getByText('Carrier')).toBeInTheDocument();
-    });
-
-    // Click on UPS carrier
-    const upsButton = screen.getByText('UPS');
-    await user.click(upsButton);
-
-    // Wait for step 3 to appear
-    await waitFor(() => {
-      expect(screen.getByLabelText('Package Description')).toBeInTheDocument();
+      expect(screen.getByText(/Auto-detected/)).toBeInTheDocument();
     });
   });
 
@@ -167,23 +159,13 @@ describe('AddShipment', () => {
 
     renderWithProviders(<AddShipment />);
 
-    // Fill out the form step by step
+    // Fill out the form
     const trackingInput = screen.getByLabelText('Tracking Number');
     await user.type(trackingInput, '1Z999AA1234567890');
-
-    // Wait for step 2 to appear
-    await waitFor(() => {
-      expect(screen.getByText('Carrier')).toBeInTheDocument();
-    });
 
     // Click on UPS carrier button
     const upsButton = screen.getByText('UPS');
     await user.click(upsButton);
-
-    // Wait for step 3 to appear
-    await waitFor(() => {
-      expect(screen.getByLabelText('Package Description')).toBeInTheDocument();
-    });
 
     const descriptionInput = screen.getByLabelText('Package Description');
     await user.type(descriptionInput, 'Test Package');
@@ -216,7 +198,7 @@ describe('AddShipment', () => {
 
     renderWithProviders(<AddShipment />);
 
-    const submitButton = screen.getByRole('button', { name: /adding magic/i });
+    const submitButton = screen.getByRole('button', { name: /creating/i });
     expect(submitButton).toBeDisabled();
   });
 

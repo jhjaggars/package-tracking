@@ -1,7 +1,8 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowLeft, Edit, Trash2, Clock } from 'lucide-react';
 import { useShipment, useShipmentEvents, useRefreshShipment, useDeleteShipment } from '../hooks/api';
-import { Button } from '../components/ui/button';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge, DateFormatter } from '../components/shared';
 import type { TrackingEvent } from '../types/api';
 import { sanitizePlainText } from '../lib/sanitize';
@@ -154,19 +155,19 @@ export function ShipmentDetail() {
       </div>
 
       {/* Shipment Details */}
-      <div className="bg-card shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg leading-6 font-medium text-card-foreground mb-4">
-            Shipment Details
-          </h3>
+      <Card>
+        <CardHeader>
+          <CardTitle>Shipment Details</CardTitle>
+        </CardHeader>
+        <CardContent>
           <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Tracking Number</dt>
-              <dd className="mt-1 text-sm text-foreground font-mono">{shipment.tracking_number}</dd>
+              <dd className="mt-1 text-sm font-mono">{shipment.tracking_number}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Carrier</dt>
-              <dd className="mt-1 text-sm text-foreground">{shipment.carrier.toUpperCase()}</dd>
+              <dd className="mt-1 text-sm">{shipment.carrier.toUpperCase()}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Status</dt>
@@ -174,16 +175,16 @@ export function ShipmentDetail() {
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-              <dd className="mt-1 text-sm text-foreground"><DateFormatter date={shipment.created_at} /></dd>
+              <dd className="mt-1 text-sm"><DateFormatter date={shipment.created_at} /></dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Last Updated</dt>
-              <dd className="mt-1 text-sm text-foreground"><DateFormatter date={shipment.updated_at} /></dd>
+              <dd className="mt-1 text-sm"><DateFormatter date={shipment.updated_at} /></dd>
             </div>
             {shipment.expected_delivery && (
               <div>
                 <dt className="text-sm font-medium text-muted-foreground">Expected Delivery</dt>
-                <dd className="mt-1 text-sm text-foreground">
+                <dd className="mt-1 text-sm">
                   <DateFormatter date={shipment.expected_delivery} />
                 </dd>
               </div>
@@ -191,7 +192,7 @@ export function ShipmentDetail() {
             {shipment.last_manual_refresh && (
               <div>
                 <dt className="text-sm font-medium text-muted-foreground">Last Manual Refresh</dt>
-                <dd className="mt-1 text-sm text-foreground">
+                <dd className="mt-1 text-sm">
                   <DateFormatter date={shipment.last_manual_refresh} />
                   <span className="ml-2 text-xs text-muted-foreground">
                     ({shipment.manual_refresh_count} times)
@@ -200,24 +201,24 @@ export function ShipmentDetail() {
               </div>
             )}
           </dl>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Tracking Timeline */}
-      <div className="bg-card shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg leading-6 font-medium text-card-foreground mb-4">
-            Tracking Timeline
-          </h3>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tracking Timeline</CardTitle>
+        </CardHeader>
+        <CardContent>
           {eventsLoading ? (
-            <div className="text-center py-4">
+            <div className="flex items-center justify-center py-4">
               <div className="text-muted-foreground">Loading tracking events...</div>
             </div>
           ) : (
             <TrackingTimeline events={events || []} />
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
