@@ -27,6 +27,9 @@ type EmailConfig struct {
 	// Processing Configuration
 	Processing ProcessingConfig `json:"processing"`
 	
+	// Time-based Scanning Configuration
+	TimeBased TimeBasedConfig `json:"time_based"`
+	
 	// API Configuration
 	API APIConfig `json:"api"`
 	
@@ -77,6 +80,18 @@ type ProcessingConfig struct {
 	MaxCandidates       int     `json:"max_candidates"`
 	UseHybridValidation bool    `json:"use_hybrid_validation"`
 	DebugMode           bool    `json:"debug_mode"`
+}
+
+// TimeBasedConfig holds time-based email scanning configuration
+type TimeBasedConfig struct {
+	Enabled              bool          `json:"enabled"`
+	ScanDays             int           `json:"scan_days"`
+	BodyStorageEnabled   bool          `json:"body_storage_enabled"`
+	RetentionDays        int           `json:"retention_days"`
+	MaxEmailsPerScan     int           `json:"max_emails_per_scan"`
+	UnreadOnly           bool          `json:"unread_only"`
+	RetryCount           int           `json:"retry_count"`
+	RetryDelay           time.Duration `json:"retry_delay"`
 }
 
 // APIConfig holds API client configuration

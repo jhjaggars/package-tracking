@@ -128,3 +128,19 @@ type StateEntry struct {
 	Subject         string    `json:"subject"`
 	ErrorMessage    string    `json:"error_message,omitempty"`
 }
+
+// EmailPage represents a paginated response of email messages
+type EmailPage struct {
+	Messages      []EmailMessage `json:"messages"`
+	NextPageToken string         `json:"next_page_token,omitempty"`
+	TotalSize     int            `json:"total_size"`
+}
+
+// TimeBasedScanConfig configures time-based email scanning
+type TimeBasedScanConfig struct {
+	ScanDays          int    `json:"scan_days"`           // Number of days to scan back
+	BodyStorageEnabled bool  `json:"body_storage_enabled"` // Whether to store email bodies
+	RetentionDays     int    `json:"retention_days"`      // How long to keep email bodies
+	MaxEmailsPerScan  int    `json:"max_emails_per_scan"` // Limit emails per scan operation
+	UnreadOnly        bool   `json:"unread_only"`         // Only scan unread emails
+}

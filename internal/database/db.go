@@ -28,6 +28,7 @@ type DB struct {
 	TrackingEvents *TrackingEventStore
 	Carriers       *CarrierStore
 	RefreshCache   *RefreshCacheStore
+	Emails         *EmailStore
 }
 
 // Open opens a database connection and initializes stores
@@ -54,6 +55,7 @@ func Open(dbPath string) (*DB, error) {
 		TrackingEvents: NewTrackingEventStore(db),
 		Carriers:       NewCarrierStore(db),
 		RefreshCache:   NewRefreshCacheStore(db),
+		Emails:         NewEmailStore(db),
 	}
 
 	// Run migrations
@@ -137,7 +139,12 @@ func (db *DB) migrate() error {
 	}
 
 	// Run Amazon fields migration
-	return db.migrateAmazonFields()
+	if err := db.migrateAmazonFields(); err != nil {
+		return err
+	}
+
+	// Run email tables migration
+	return db.migrateEmailTables()
 }
 
 // insertDefaultCarriers adds default carrier data
@@ -291,6 +298,192 @@ func (db *DB) migrateAmazonFields() error {
 		for _, query := range indexQueries {
 			if _, err := db.Exec(query); err != nil {
 				return fmt.Errorf("failed to create Amazon index '%s': %w", query, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// migrateEmailTables creates email-related tables and modifies processed_emails for time-based scanning
+func (db *DB) migrateEmailTables() error {
+	// Check if email_threads table already exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM sqlite_master 
+		WHERE type='table' AND name='email_threads'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check email_threads table existence: %w", err)
+	}
+
+	// Create email tables if they don't exist
+	if tableExists == 0 {
+		// Create email_threads table
+		_, err := db.Exec(`
+			CREATE TABLE email_threads (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				gmail_thread_id TEXT UNIQUE NOT NULL,
+				subject TEXT NOT NULL,
+				participants TEXT NOT NULL,
+				message_count INTEGER NOT NULL DEFAULT 1,
+				first_message_date DATETIME NOT NULL,
+				last_message_date DATETIME NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create email_threads table: %w", err)
+		}
+
+		// Create email_shipments linking table
+		_, err = db.Exec(`
+			CREATE TABLE email_shipments (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				email_id INTEGER NOT NULL,
+				shipment_id INTEGER NOT NULL,
+				link_type TEXT NOT NULL,
+				tracking_number TEXT NOT NULL,
+				created_by TEXT NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(email_id, shipment_id),
+				FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create email_shipments table: %w", err)
+		}
+
+		// Create indexes for email tables
+		indexQueries := []string{
+			"CREATE INDEX IF NOT EXISTS idx_email_threads_gmail_thread_id ON email_threads(gmail_thread_id)",
+			"CREATE INDEX IF NOT EXISTS idx_email_threads_dates ON email_threads(first_message_date, last_message_date)",
+			"CREATE INDEX IF NOT EXISTS idx_email_shipments_email_id ON email_shipments(email_id)",
+			"CREATE INDEX IF NOT EXISTS idx_email_shipments_shipment_id ON email_shipments(shipment_id)",
+			"CREATE INDEX IF NOT EXISTS idx_email_shipments_tracking ON email_shipments(tracking_number)",
+		}
+
+		for _, query := range indexQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to create email index '%s': %w", query, err)
+			}
+		}
+	}
+
+	// Check if processed_emails table exists (it should be in email-state.db)
+	var processedTableExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM sqlite_master 
+		WHERE type='table' AND name='processed_emails'
+	`).Scan(&processedTableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check processed_emails table existence: %w", err)
+	}
+
+	// Create processed_emails table if it doesn't exist (for backward compatibility)
+	if processedTableExists == 0 {
+		_, err := db.Exec(`
+			CREATE TABLE processed_emails (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				gmail_message_id TEXT UNIQUE NOT NULL,
+				gmail_thread_id TEXT NOT NULL,
+				from_address TEXT NOT NULL,
+				subject TEXT NOT NULL,
+				date DATETIME NOT NULL,
+				body_text TEXT,
+				body_html TEXT,
+				body_compressed BLOB,
+				internal_timestamp DATETIME NOT NULL,
+				scan_method TEXT NOT NULL DEFAULT 'search',
+				processed_at DATETIME NOT NULL,
+				status TEXT NOT NULL,
+				tracking_numbers TEXT,
+				error_message TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create processed_emails table: %w", err)
+		}
+
+		// Create indexes for processed_emails
+		indexQueries := []string{
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_gmail_message_id ON processed_emails(gmail_message_id)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_gmail_thread_id ON processed_emails(gmail_thread_id)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_internal_timestamp ON processed_emails(internal_timestamp)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_scan_method ON processed_emails(scan_method)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_status ON processed_emails(status)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_date ON processed_emails(date)",
+		}
+
+		for _, query := range indexQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to create processed_emails index '%s': %w", query, err)
+			}
+		}
+	} else {
+		// Table exists, check if new columns need to be added
+		err := db.migrateProcessedEmailsFields()
+		if err != nil {
+			return fmt.Errorf("failed to migrate processed_emails fields: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateProcessedEmailsFields adds new fields to existing processed_emails table
+func (db *DB) migrateProcessedEmailsFields() error {
+	// Check if body_text column already exists
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM pragma_table_info('processed_emails') 
+		WHERE name = 'body_text'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check body_text column existence: %w", err)
+	}
+
+	// If new columns don't exist, add them
+	if columnExists == 0 {
+		alterQueries := []string{
+			"ALTER TABLE processed_emails ADD COLUMN body_text TEXT",
+			"ALTER TABLE processed_emails ADD COLUMN body_html TEXT",
+			"ALTER TABLE processed_emails ADD COLUMN body_compressed BLOB",
+			"ALTER TABLE processed_emails ADD COLUMN internal_timestamp DATETIME",
+			"ALTER TABLE processed_emails ADD COLUMN scan_method TEXT DEFAULT 'search'",
+		}
+
+		for _, query := range alterQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to execute processed_emails migration query '%s': %w", query, err)
+			}
+		}
+
+		// Update internal_timestamp for existing records where it's NULL
+		_, err := db.Exec(`
+			UPDATE processed_emails 
+			SET internal_timestamp = processed_at 
+			WHERE internal_timestamp IS NULL
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to update internal_timestamp for existing records: %w", err)
+		}
+
+		// Add new indexes
+		indexQueries := []string{
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_internal_timestamp ON processed_emails(internal_timestamp)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_scan_method ON processed_emails(scan_method)",
+		}
+
+		for _, query := range indexQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to create processed_emails index '%s': %w", query, err)
 			}
 		}
 	}

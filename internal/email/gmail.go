@@ -1,9 +1,12 @@
 package email
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net/mail"
 	"regexp"
@@ -322,4 +325,275 @@ func BuildSearchQueryForLLMProcessing(afterDays int, unreadOnly bool) string {
 func (g *GmailClient) SearchCarrierEmails(carriers []string, afterDays int) ([]EmailMessage, error) {
 	query := BuildSearchQuery(carriers, afterDays, false, "")
 	return g.Search(query)
+}
+
+// GetMessagesSince retrieves all messages since a specific timestamp using time-based scanning
+func (g *GmailClient) GetMessagesSince(since time.Time) ([]EmailMessage, error) {
+	log.Printf("Getting messages since: %v", since)
+
+	// Build time-based query
+	query := fmt.Sprintf("after:%s", since.Format("2006/1/2"))
+	
+	var allMessages []EmailMessage
+	pageToken := ""
+	
+	for {
+		// Apply rate limiting
+		time.Sleep(g.config.RateLimitDelay)
+		
+		// Build request
+		req := g.service.Users.Messages.List(g.userID).Q(query)
+		if g.config.MaxResults > 0 {
+			req = req.MaxResults(g.config.MaxResults)
+		}
+		if pageToken != "" {
+			req = req.PageToken(pageToken)
+		}
+		
+		// Execute request
+		resp, err := req.Do()
+		if err != nil {
+			return nil, fmt.Errorf("Gmail messages list failed: %w", err)
+		}
+		
+		log.Printf("Found %d messages in page (total so far: %d)", len(resp.Messages), len(allMessages))
+		
+		// Process messages in this page
+		for _, msg := range resp.Messages {
+			// Rate limiting between requests
+			time.Sleep(g.config.RateLimitDelay)
+			
+			fullMessage, err := g.GetEnhancedMessage(msg.Id)
+			if err != nil {
+				log.Printf("Failed to get enhanced message %s: %v", msg.Id, err)
+				continue
+			}
+			
+			allMessages = append(allMessages, *fullMessage)
+		}
+		
+		// Check for more pages
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
+		
+		log.Printf("Fetching next page with token: %s", pageToken)
+	}
+	
+	log.Printf("Total messages retrieved since %v: %d", since, len(allMessages))
+	return allMessages, nil
+}
+
+// GetEnhancedMessage retrieves a message with full body content for storage
+func (g *GmailClient) GetEnhancedMessage(id string) (*EmailMessage, error) {
+	msg, err := g.service.Users.Messages.Get(g.userID, id).Format("full").Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get enhanced message %s: %w", id, err)
+	}
+	
+	// Parse the message with enhanced body extraction
+	emailMsg, err := g.parseEnhancedGmailMessage(msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse enhanced message %s: %w", id, err)
+	}
+	
+	return emailMsg, nil
+}
+
+// GetThreadMessages retrieves all messages in a Gmail thread
+func (g *GmailClient) GetThreadMessages(threadID string) ([]EmailMessage, error) {
+	log.Printf("Getting thread messages for thread: %s", threadID)
+	
+	// Apply rate limiting
+	time.Sleep(g.config.RateLimitDelay)
+	
+	// Get the thread
+	thread, err := g.service.Users.Threads.Get(g.userID, threadID).Format("full").Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get thread %s: %w", threadID, err)
+	}
+	
+	var messages []EmailMessage
+	for _, msg := range thread.Messages {
+		// Parse each message in the thread
+		emailMsg, err := g.parseEnhancedGmailMessage(msg)
+		if err != nil {
+			log.Printf("Failed to parse message %s in thread %s: %v", msg.Id, threadID, err)
+			continue
+		}
+		
+		messages = append(messages, *emailMsg)
+	}
+	
+	log.Printf("Retrieved %d messages from thread %s", len(messages), threadID)
+	return messages, nil
+}
+
+// parseEnhancedGmailMessage converts Gmail API message to EmailMessage with full body content
+func (g *GmailClient) parseEnhancedGmailMessage(msg *gmail.Message) (*EmailMessage, error) {
+	emailMsg := &EmailMessage{
+		ID:       msg.Id,
+		ThreadID: msg.ThreadId,
+		Headers:  make(map[string]string),
+		Labels:   msg.LabelIds,
+	}
+	
+	// Parse headers
+	for _, header := range msg.Payload.Headers {
+		emailMsg.Headers[header.Name] = header.Value
+		
+		switch strings.ToLower(header.Name) {
+		case "from":
+			emailMsg.From = header.Value
+		case "subject":
+			emailMsg.Subject = header.Value
+		case "date":
+			if date, err := mail.ParseDate(header.Value); err == nil {
+				emailMsg.Date = date
+			}
+		}
+	}
+	
+	// Extract body content with enhanced parsing for storage
+	plainText, htmlText := g.extractEnhancedContent(msg.Payload)
+	emailMsg.PlainText = plainText
+	emailMsg.HTMLText = htmlText
+	
+	return emailMsg, nil
+}
+
+// extractEnhancedContent extracts both plain text and HTML content with better handling
+func (g *GmailClient) extractEnhancedContent(payload *gmail.MessagePart) (plainText, htmlText string) {
+	// Handle direct content
+	if payload.Body != nil && payload.Body.Data != "" {
+		decoded, err := base64.URLEncoding.DecodeString(payload.Body.Data)
+		if err == nil {
+			content := string(decoded)
+			switch payload.MimeType {
+			case "text/plain":
+				plainText = content
+			case "text/html":
+				htmlText = content
+			}
+		}
+	}
+	
+	// Handle multipart content recursively
+	for _, part := range payload.Parts {
+		partPlain, partHTML := g.extractEnhancedContent(part)
+		
+		// Prefer the first non-empty content found
+		if partPlain != "" && plainText == "" {
+			plainText = partPlain
+		}
+		if partHTML != "" && htmlText == "" {
+			htmlText = partHTML
+		}
+	}
+	
+	// Convert HTML to plain text if no plain text version exists
+	if plainText == "" && htmlText != "" {
+		plainText = g.htmlToText(htmlText)
+	}
+	
+	return plainText, htmlText
+}
+
+// GetMessagesSinceWithPagination retrieves messages with custom pagination parameters
+func (g *GmailClient) GetMessagesSinceWithPagination(since time.Time, maxResults int64, pageToken string) (*EmailPage, error) {
+	query := fmt.Sprintf("after:%s", since.Format("2006/1/2"))
+	
+	// Apply rate limiting
+	time.Sleep(g.config.RateLimitDelay)
+	
+	// Build request
+	req := g.service.Users.Messages.List(g.userID).Q(query)
+	if maxResults > 0 {
+		req = req.MaxResults(maxResults)
+	}
+	if pageToken != "" {
+		req = req.PageToken(pageToken)
+	}
+	
+	// Execute request
+	resp, err := req.Do()
+	if err != nil {
+		return nil, fmt.Errorf("Gmail paginated messages list failed: %w", err)
+	}
+	
+	var messages []EmailMessage
+	for _, msg := range resp.Messages {
+		// Rate limiting between requests
+		time.Sleep(g.config.RateLimitDelay)
+		
+		fullMessage, err := g.GetEnhancedMessage(msg.Id)
+		if err != nil {
+			log.Printf("Failed to get enhanced message %s: %v", msg.Id, err)
+			continue
+		}
+		
+		messages = append(messages, *fullMessage)
+	}
+	
+	return &EmailPage{
+		Messages:      messages,
+		NextPageToken: resp.NextPageToken,
+		TotalSize:     len(messages),
+	}, nil
+}
+
+// PerformRetroactiveScan scans all emails within the specified number of days
+func (g *GmailClient) PerformRetroactiveScan(days int) ([]EmailMessage, error) {
+	since := time.Now().AddDate(0, 0, -days)
+	log.Printf("Starting retroactive scan for the last %d days (since %v)", days, since)
+	
+	messages, err := g.GetMessagesSince(since)
+	if err != nil {
+		return nil, fmt.Errorf("retroactive scan failed: %w", err)
+	}
+	
+	log.Printf("Retroactive scan completed: found %d messages", len(messages))
+	return messages, nil
+}
+
+// CompressEmailBody compresses email body text for efficient storage
+func CompressEmailBody(text string) ([]byte, error) {
+	if text == "" {
+		return nil, nil
+	}
+	
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	
+	if _, err := gz.Write([]byte(text)); err != nil {
+		return nil, fmt.Errorf("failed to write to gzip: %w", err)
+	}
+	
+	if err := gz.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close gzip: %w", err)
+	}
+	
+	return buf.Bytes(), nil
+}
+
+// DecompressEmailBody decompresses compressed email body text
+func DecompressEmailBody(compressed []byte) (string, error) {
+	if len(compressed) == 0 {
+		return "", nil
+	}
+	
+	buf := bytes.NewReader(compressed)
+	gz, err := gzip.NewReader(buf)
+	if err != nil {
+		return "", fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer gz.Close()
+	
+	decompressed, err := io.ReadAll(gz)
+	if err != nil {
+		return "", fmt.Errorf("failed to read from gzip: %w", err)
+	}
+	
+	return string(decompressed), nil
 }
