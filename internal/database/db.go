@@ -390,7 +390,7 @@ func (db *DB) migrateEmailTables() error {
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				gmail_message_id TEXT UNIQUE NOT NULL,
 				gmail_thread_id TEXT NOT NULL,
-				from_address TEXT NOT NULL,
+				sender TEXT NOT NULL,
 				subject TEXT NOT NULL,
 				date DATETIME NOT NULL,
 				body_text TEXT,
@@ -430,6 +430,12 @@ func (db *DB) migrateEmailTables() error {
 		err := db.migrateProcessedEmailsFields()
 		if err != nil {
 			return fmt.Errorf("failed to migrate processed_emails fields: %w", err)
+		}
+		
+		// Check if we need to migrate from_address to sender
+		err = db.migrateFromAddressToSender()
+		if err != nil {
+			return fmt.Errorf("failed to migrate from_address to sender: %w", err)
 		}
 	}
 
@@ -488,6 +494,49 @@ func (db *DB) migrateProcessedEmailsFields() error {
 		}
 	}
 
+	return nil
+}
+
+// migrateFromAddressToSender migrates old from_address column to sender column
+func (db *DB) migrateFromAddressToSender() error {
+	// Check if from_address column exists
+	var fromAddressExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM pragma_table_info('processed_emails') 
+		WHERE name = 'from_address'
+	`).Scan(&fromAddressExists)
+	if err != nil {
+		return fmt.Errorf("failed to check from_address column existence: %w", err)
+	}
+	
+	// Check if sender column exists
+	var senderExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM pragma_table_info('processed_emails') 
+		WHERE name = 'sender'
+	`).Scan(&senderExists)
+	if err != nil {
+		return fmt.Errorf("failed to check sender column existence: %w", err)
+	}
+	
+	// If from_address exists but sender doesn't, migrate the data
+	if fromAddressExists > 0 && senderExists == 0 {
+		// Add sender column
+		if _, err := db.Exec("ALTER TABLE processed_emails ADD COLUMN sender TEXT"); err != nil {
+			return fmt.Errorf("failed to add sender column: %w", err)
+		}
+		
+		// Copy data from from_address to sender
+		if _, err := db.Exec("UPDATE processed_emails SET sender = from_address"); err != nil {
+			return fmt.Errorf("failed to copy from_address to sender: %w", err)
+		}
+		
+		// Note: We don't drop the from_address column as SQLite doesn't support ALTER TABLE DROP COLUMN
+		// in older versions. The column will be ignored in queries.
+	}
+	
 	return nil
 }
 

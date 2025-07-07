@@ -14,6 +14,7 @@ import (
 	"package-tracking/internal/email"
 )
 
+
 // MockValidationAPIClient mocks the API client for validation tests
 type MockValidationAPIClient struct {
 	shouldError     bool
@@ -999,13 +1000,16 @@ func TestEmailProcessingWithValidationFailure(t *testing.T) {
 		t.Errorf("Expected 0 shipment creation calls, got %d", len(mockAPIClient.createCalls))
 	}
 
-	// Verify email was still processed and stored
-	processedEmail, err := db.Emails.GetByGmailMessageID("email-with-invalid-tracking")
+	// Verify email was still processed in state manager despite validation failure
+	// Note: With the new architecture, emails are only stored in the database when
+	// validation succeeds and shipments are created. For validation failures,
+	// we check the state manager instead.
+	isProcessed, err := processor.stateManager.IsProcessed("email-with-invalid-tracking")
 	if err != nil {
-		t.Fatalf("Failed to get processed email: %v", err)
+		t.Fatalf("Failed to check if email is processed: %v", err)
 	}
-	if processedEmail == nil {
-		t.Error("Expected email to be processed and stored despite validation failure")
+	if !isProcessed {
+		t.Error("Expected email to be processed in state manager despite validation failure")
 	}
 }
 
@@ -1040,10 +1044,17 @@ func setupValidationProcessor(t *testing.T, db *database.DB, factory *MockCarrie
 		reason:      "no_limit",
 	}
 
+	// Create mock state manager
+	mockStateManager := &MockTimeBasedStateManager{
+		processedEmails: make(map[string]*email.StateEntry),
+		callLog:         []string{},
+	}
+
 	processor := &TimeBasedEmailProcessor{
 		config:        config,
 		emailClient:   nil, // Will be set by individual tests
 		extractor:     &MockTrackingExtractor{},
+		stateManager:  mockStateManager,
 		emailStore:    db.Emails,
 		shipmentStore: db.Shipments,
 		apiClient:     nil, // Will be set by individual tests
@@ -1119,20 +1130,20 @@ func TestEmailShipmentLinking(t *testing.T) {
 		t.Fatalf("Failed to create email: %v", err)
 	}
 
-	// Create tracking info
-	trackingInfo := []email.TrackingInfo{
-		{
-			Number:  "1Z999AA1234567890",
-			Carrier: "ups",
-			Source:  "test",
-			Context: "email body",
-		},
+	// Test email processing through the public interface
+	emailMsg := &email.EmailMessage{
+		ID:        emailEntry.GmailMessageID,
+		ThreadID:  emailEntry.GmailThreadID,
+		From:      emailEntry.From,
+		Subject:   emailEntry.Subject,
+		Date:      emailEntry.Date,
+		PlainText: emailEntry.BodyText,
+		HTMLText:  emailEntry.BodyHTML,
 	}
-
-	// Test email-shipment linking
-	err = processor.createShipmentsAndLinks(trackingInfo, emailEntry)
+	
+	err = processor.processIndividualEmail(emailMsg)
 	if err != nil {
-		t.Fatalf("Failed to create shipments and links: %v", err)
+		t.Fatalf("Failed to process individual email: %v", err)
 	}
 
 	// Verify shipment was created
@@ -1150,23 +1161,7 @@ func TestEmailShipmentLinking(t *testing.T) {
 		}
 	}
 
-	// Test linking with multiple tracking numbers
-	multipleTrackingInfo := []email.TrackingInfo{
-		{
-			Number:  "1Z999AA1234567890",
-			Carrier: "ups",
-			Source:  "test",
-			Context: "email body",
-		},
-		{
-			Number:  "9999999999999999999999",
-			Carrier: "fedex",
-			Source:  "test",
-			Context: "email body",
-		},
-	}
-
-	// Reset API client call tracking
+	// Reset API client call tracking for multiple tracking test
 	mockAPIClient.createCalls = []email.TrackingInfo{}
 
 	// Create another email entry for multiple tracking test
@@ -1188,10 +1183,20 @@ func TestEmailShipmentLinking(t *testing.T) {
 		t.Fatalf("Failed to create second email: %v", err)
 	}
 
-	// Test with multiple tracking numbers
-	err = processor.createShipmentsAndLinks(multipleTrackingInfo, emailEntry2)
+	// Test with multiple tracking numbers through public interface
+	emailMsg2 := &email.EmailMessage{
+		ID:        emailEntry2.GmailMessageID,
+		ThreadID:  emailEntry2.GmailThreadID,
+		From:      emailEntry2.From,
+		Subject:   emailEntry2.Subject,
+		Date:      emailEntry2.Date,
+		PlainText: emailEntry2.BodyText,
+		HTMLText:  emailEntry2.BodyHTML,
+	}
+	
+	err = processor.processIndividualEmail(emailMsg2)
 	if err != nil {
-		t.Fatalf("Failed to create shipments and links for multiple tracking: %v", err)
+		t.Fatalf("Failed to process second individual email: %v", err)
 	}
 
 	// Verify both shipments were created
@@ -1250,20 +1255,20 @@ func TestEmailShipmentLinkingWithDryRun(t *testing.T) {
 		Status:            "processing",
 	}
 
-	// Create tracking info
-	trackingInfo := []email.TrackingInfo{
-		{
-			Number:  "1Z999AA1234567890",
-			Carrier: "ups",
-			Source:  "test",
-			Context: "email body",
-		},
+	// Test email processing in dry run mode through public interface
+	emailMsg := &email.EmailMessage{
+		ID:        emailEntry.GmailMessageID,
+		ThreadID:  emailEntry.GmailThreadID,
+		From:      emailEntry.From,
+		Subject:   emailEntry.Subject,
+		Date:      emailEntry.Date,
+		PlainText: emailEntry.BodyText,
+		HTMLText:  emailEntry.BodyHTML,
 	}
-
-	// Test email-shipment linking in dry run mode
-	err = processor.createShipmentsAndLinks(trackingInfo, emailEntry)
+	
+	err = processor.processIndividualEmail(emailMsg)
 	if err != nil {
-		t.Fatalf("Failed to create shipments and links in dry run: %v", err)
+		t.Fatalf("Failed to process individual email in dry run: %v", err)
 	}
 
 	// Verify no shipment was actually created in dry run mode

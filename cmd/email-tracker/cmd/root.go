@@ -286,17 +286,29 @@ func runEmailTracker(cmd *cobra.Command, args []string) error {
 	
 	logger.Info("API client initialized successfully", "url", cfg.API.URL)
 	
-	// Initialize database for time-based processing
-	db, err := database.Open(cfg.Processing.StateDBPath)
-	if err != nil {
-		logger.Error("Failed to initialize database", "error", err)
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer db.Close()
+	// Initialize main database for email body storage (only if body storage is enabled)
+	var emailStore *database.EmailStore
+	var shipmentStore *database.ShipmentStore
 	
-	// Initialize stores
-	emailStore := db.Emails
-	shipmentStore := db.Shipments
+	if cfg.TimeBased.BodyStorageEnabled {
+		// Use a different database path for email body storage to avoid conflicts
+		// We'll use the main database.db since that's where shipments are stored
+		mainDBPath := "./database.db" // Use the main application database
+		
+		mainDB, err := database.Open(mainDBPath)
+		if err != nil {
+			logger.Error("Failed to initialize main database for email body storage", "error", err)
+			return fmt.Errorf("failed to initialize main database: %w", err)
+		}
+		defer mainDB.Close()
+		
+		emailStore = mainDB.Emails
+		shipmentStore = mainDB.Shipments
+		
+		logger.Info("Email body storage enabled", "db_path", mainDBPath)
+	} else {
+		logger.Info("Email body storage disabled")
+	}
 	
 	// Initialize time-based email processor
 	timeProcessorConfig := &workers.TimeBasedEmailProcessorConfig{
@@ -323,8 +335,9 @@ func runEmailTracker(cmd *cobra.Command, args []string) error {
 		timeProcessorConfig,
 		timeBasedClient,
 		extractor,
-		emailStore,
-		shipmentStore,
+		stateManager,  // Use stateManager for email state tracking
+		emailStore,    // Use emailStore for body storage (may be nil if disabled)
+		shipmentStore, // Use shipmentStore for linking emails to shipments
 		apiClient,
 		logger,
 	)

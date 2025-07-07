@@ -23,7 +23,8 @@ type TimeBasedEmailProcessor struct {
 	config        *TimeBasedEmailProcessorConfig
 	emailClient   TimeBasedEmailClient
 	extractor     TrackingExtractor
-	emailStore    *database.EmailStore
+	stateManager  StateManager
+	emailStore    *database.EmailStore  // Optional: for storing email bodies with valid tracking
 	shipmentStore *database.ShipmentStore
 	apiClient     APIClient
 	logger        *slog.Logger
@@ -109,6 +110,7 @@ func NewTimeBasedEmailProcessor(
 	config *TimeBasedEmailProcessorConfig,
 	emailClient TimeBasedEmailClient,
 	extractor TrackingExtractor,
+	stateManager StateManager,
 	emailStore *database.EmailStore,
 	shipmentStore *database.ShipmentStore,
 	apiClient APIClient,
@@ -118,6 +120,7 @@ func NewTimeBasedEmailProcessor(
 		config:        config,
 		emailClient:   emailClient,
 		extractor:     extractor,
+		stateManager:  stateManager,
 		emailStore:    emailStore,
 		shipmentStore: shipmentStore,
 		apiClient:     apiClient,
@@ -314,7 +317,7 @@ func (p *TimeBasedEmailProcessor) ProcessEmailsSince(since time.Time) error {
 		}
 
 		// Check if already processed
-		alreadyProcessed, err := p.emailStore.IsProcessed(msg.ID)
+		alreadyProcessed, err := p.stateManager.IsProcessed(msg.ID)
 		if err != nil {
 			p.logger.Warn("Failed to check if email is processed", "email_id", msg.ID, "error", err)
 			errors++
@@ -354,11 +357,11 @@ func (p *TimeBasedEmailProcessor) ProcessEmailsSince(since time.Time) error {
 		"errors", errors,
 		"total_messages", len(messages))
 
-	// Cleanup old email bodies if retention is configured
+	// Cleanup old email state if retention is configured
 	if p.config.RetentionDays > 0 {
 		cleanupTime := time.Now().AddDate(0, 0, -p.config.RetentionDays)
-		if err := p.emailStore.CleanupOldEmails(cleanupTime); err != nil {
-			p.logger.Warn("Failed to cleanup old email bodies", "error", err)
+		if err := p.stateManager.Cleanup(cleanupTime); err != nil {
+			p.logger.Warn("Failed to cleanup old email state", "error", err)
 		}
 	}
 
@@ -382,7 +385,7 @@ func (p *TimeBasedEmailProcessor) PerformRetroactiveScan() error {
 	// Process all retrieved messages
 	for _, msg := range messages {
 		// Check if already processed
-		alreadyProcessed, err := p.emailStore.IsProcessed(msg.ID)
+		alreadyProcessed, err := p.stateManager.IsProcessed(msg.ID)
 		if err != nil {
 			p.logger.Warn("Failed to check if email is processed during retroactive scan",
 				"email_id", msg.ID, "error", err)
@@ -412,38 +415,14 @@ func (p *TimeBasedEmailProcessor) PerformRetroactiveScan() error {
 func (p *TimeBasedEmailProcessor) processIndividualEmail(msg *email.EmailMessage) error {
 	logger := p.logger.With("email_id", msg.ID, "from", msg.From, "subject", msg.Subject)
 
-	// Convert to database format for storage
-	emailEntry := &database.EmailBodyEntry{
-		GmailMessageID:    msg.ID,
-		GmailThreadID:     msg.ThreadID,
-		From:              msg.From,
-		Subject:           msg.Subject,
-		Date:              msg.Date,
-		InternalTimestamp: time.Now(),
-		ScanMethod:        "time-based",
-		ProcessedAt:       time.Now(),
-		Status:            "processing",
-	}
-
-	// Store email body if enabled
-	if p.config.BodyStorageEnabled {
-		emailEntry.BodyText = msg.PlainText
-		emailEntry.BodyHTML = msg.HTMLText
-
-		// Compress body if it's large
-		if len(msg.PlainText) > 1000 { // Compress if larger than 1KB
-			compressed, err := email.CompressEmailBody(msg.PlainText)
-			if err != nil {
-				logger.Warn("Failed to compress email body", "error", err)
-			} else {
-				emailEntry.BodyCompressed = compressed
-				// Clear uncompressed text to save space
-				emailEntry.BodyText = ""
-			}
-		}
-
-		p.metrics.incrementEmailsWithBodiesStored()
-		logger.Debug("Stored email body", "compressed", len(emailEntry.BodyCompressed) > 0)
+	// Convert to state entry format for storage
+	stateEntry := &email.StateEntry{
+		GmailMessageID: msg.ID,
+		GmailThreadID:  msg.ThreadID,
+		Sender:         msg.From,
+		Subject:        msg.Subject,
+		ProcessedAt:    time.Now(),
+		Status:         "processing",
 	}
 
 	// Extract tracking numbers
@@ -461,97 +440,74 @@ func (p *TimeBasedEmailProcessor) processIndividualEmail(msg *email.EmailMessage
 	trackingInfo, err := p.extractor.Extract(content)
 	if err != nil {
 		logger.Error("Failed to extract tracking numbers", "error", err)
-		emailEntry.Status = "error"
-		emailEntry.ErrorMessage = err.Error()
+		stateEntry.Status = "error"
+		stateEntry.ErrorMessage = err.Error()
 	} else {
 		// Store tracking numbers found
 		if len(trackingInfo) > 0 {
 			trackingJSON, _ := json.Marshal(trackingInfo)
-			emailEntry.TrackingNumbers = string(trackingJSON)
-			emailEntry.Status = "processed"
+			stateEntry.TrackingNumbers = string(trackingJSON)
+			stateEntry.Status = "processed"
 
 			logger.Info("Found tracking numbers", "count", len(trackingInfo))
 
-			// Create shipments and link them to the email
-			if err := p.createShipmentsAndLinks(trackingInfo, emailEntry); err != nil {
-				logger.Error("Failed to create shipments and links", "error", err)
+			// Create shipments via API and store email body if successful
+			successfulTrackingNumbers := []email.TrackingInfo{}
+			for _, tracking := range trackingInfo {
+				if err := p.createShipment(tracking); err != nil {
+					logger.Error("Failed to create shipment", "tracking_number", tracking.Number, "error", err)
+				} else {
+					successfulTrackingNumbers = append(successfulTrackingNumbers, tracking)
+				}
+			}
+			
+			// Store email body only if we successfully created shipments and email store is available
+			if len(successfulTrackingNumbers) > 0 && p.emailStore != nil && p.config.BodyStorageEnabled {
+				if err := p.storeEmailBodyWithTracking(msg, successfulTrackingNumbers); err != nil {
+					logger.Warn("Failed to store email body", "error", err)
+					// Don't fail the entire process for email body storage issues
+				}
 			}
 		} else {
-			emailEntry.Status = "processed"
+			stateEntry.Status = "processed"
 			logger.Debug("No tracking numbers found")
 		}
 	}
 
-	// Store the email in the database
-	if err := p.emailStore.CreateOrUpdate(emailEntry); err != nil {
+	// Store the email state
+	if err := p.stateManager.MarkProcessed(stateEntry); err != nil {
 		return fmt.Errorf("failed to store email: %w", err)
 	}
 
-	// Create or update thread information
-	if err := p.createOrUpdateThread(msg); err != nil {
-		logger.Warn("Failed to create/update thread", "error", err)
-	}
-
 	return nil
 }
 
-// createShipmentsAndLinks creates shipments for found tracking numbers and links them to the email
-func (p *TimeBasedEmailProcessor) createShipmentsAndLinks(trackingInfo []email.TrackingInfo, emailEntry *database.EmailBodyEntry) error {
-	for _, tracking := range trackingInfo {
-		if p.config.DryRun {
-			p.logger.Info("Dry run: would create shipment",
-				"tracking_number", tracking.Number,
-				"carrier", tracking.Carrier)
-			continue
-		}
-
-		// Validate tracking number before creating shipment (FR1: Tracking Number Validation During Email Processing)
-		ctx := context.Background()
-		validationResult, err := p.validateTracking(ctx, tracking.Number, tracking.Carrier)
-		if err != nil || !validationResult.IsValid {
-			p.logger.WarnContext(ctx, "Tracking validation failed",
-				"tracking_number", tracking.Number,
-				"carrier", tracking.Carrier,
-				"email_subject", emailEntry.Subject,
-				"email_body", truncateForLogging(emailEntry.BodyText, 500),
-				"error", err)
-			continue // Skip this tracking number (FR1: Failure behavior)
-		}
-
-		p.logger.InfoContext(ctx, "Tracking number validated successfully",
-			"tracking_number", tracking.Number,
-			"carrier", tracking.Carrier,
-			"events_found", len(validationResult.TrackingEvents))
-
-		// Create shipment via API
-		if err := p.createShipment(tracking); err != nil {
-			p.logger.Warn("Failed to create shipment",
-				"tracking_number", tracking.Number,
-				"carrier", tracking.Carrier,
-				"error", err)
-			continue
-		}
-
-		p.metrics.incrementShipmentsCreated()
-
-		// Find the created shipment to get its ID
-		// This is a simplified approach - in a real implementation, we'd get the ID from the API response
-		// For now, we'll create the link based on tracking number matching
-		if err := p.linkEmailToShipmentByTracking(emailEntry.ID, tracking.Number); err != nil {
-			p.logger.Warn("Failed to link email to shipment",
-				"email_id", emailEntry.ID,
-				"tracking_number", tracking.Number,
-				"error", err)
-		} else {
-			p.metrics.incrementAutomaticLinksCreated()
-		}
-	}
-
-	return nil
-}
 
 // createShipment creates a shipment via the API client
 func (p *TimeBasedEmailProcessor) createShipment(tracking email.TrackingInfo) error {
+	if p.config.DryRun {
+		p.logger.Info("Dry run: would create shipment",
+			"tracking_number", tracking.Number,
+			"carrier", tracking.Carrier)
+		return nil
+	}
+
+	// Validate tracking number before creating shipment
+	ctx := context.Background()
+	validationResult, err := p.validateTracking(ctx, tracking.Number, tracking.Carrier)
+	if err != nil || !validationResult.IsValid {
+		p.logger.WarnContext(ctx, "Tracking validation failed",
+			"tracking_number", tracking.Number,
+			"carrier", tracking.Carrier,
+			"error", err)
+		return fmt.Errorf("tracking validation failed: %w", err)
+	}
+
+	p.logger.InfoContext(ctx, "Tracking number validated successfully",
+		"tracking_number", tracking.Number,
+		"carrier", tracking.Carrier,
+		"events_found", len(validationResult.TrackingEvents))
+
 	if p.apiClient == nil {
 		return fmt.Errorf("no API client configured")
 	}
@@ -562,6 +518,7 @@ func (p *TimeBasedEmailProcessor) createShipment(tracking email.TrackingInfo) er
 	for attempt < p.config.RetryCount {
 		err := p.apiClient.CreateShipment(tracking)
 		if err == nil {
+			p.metrics.incrementShipmentsCreated()
 			return nil
 		}
 
@@ -576,41 +533,100 @@ func (p *TimeBasedEmailProcessor) createShipment(tracking email.TrackingInfo) er
 	return fmt.Errorf("failed to create shipment after %d attempts: %w", p.config.RetryCount, lastErr)
 }
 
-// linkEmailToShipmentByTracking links an email to a shipment based on tracking number
-func (p *TimeBasedEmailProcessor) linkEmailToShipmentByTracking(emailID int, trackingNumber string) error {
-	// This is a placeholder implementation
-	// In a real implementation, we would query the shipments table to find the shipment ID
-	// and then create the link using emailStore.LinkEmailToShipment
-	
-	// For now, we'll log that we would create the link
-	p.logger.Debug("Would create email-shipment link",
+// storeEmailBodyWithTracking stores the email body for emails with valid tracking numbers
+func (p *TimeBasedEmailProcessor) storeEmailBodyWithTracking(msg *email.EmailMessage, trackingNumbers []email.TrackingInfo) error {
+	if p.emailStore == nil {
+		return fmt.Errorf("email store not available")
+	}
+
+	// Convert to database format for storage
+	emailEntry := &database.EmailBodyEntry{
+		GmailMessageID:    msg.ID,
+		GmailThreadID:     msg.ThreadID,
+		From:              msg.From,
+		Subject:           msg.Subject,
+		Date:              msg.Date,
+		BodyText:          msg.PlainText,
+		BodyHTML:          msg.HTMLText,
+		InternalTimestamp: time.Now(),
+		ScanMethod:        "time-based",
+		ProcessedAt:       time.Now(),
+		Status:            "processed",
+	}
+
+	// Store tracking numbers found
+	trackingJSON, err := json.Marshal(trackingNumbers)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tracking numbers: %w", err)
+	}
+	emailEntry.TrackingNumbers = string(trackingJSON)
+
+	// Compress body if it's large to save space
+	if len(msg.PlainText) > 1000 { // Compress if larger than 1KB
+		compressed, err := database.CompressEmailBody(msg.PlainText)
+		if err != nil {
+			p.logger.Warn("Failed to compress email body", "error", err)
+		} else {
+			emailEntry.BodyCompressed = compressed
+			// Clear uncompressed text to save space
+			emailEntry.BodyText = ""
+		}
+	}
+
+	// Store the email body in the main database
+	if err := p.emailStore.CreateOrUpdate(emailEntry); err != nil {
+		return fmt.Errorf("failed to store email body: %w", err)
+	}
+
+	p.logger.Info("Stored email body for shipment context",
+		"email_id", msg.ID,
+		"tracking_count", len(trackingNumbers),
+		"compressed", len(emailEntry.BodyCompressed) > 0)
+
+	// Link email to shipments for easy retrieval
+	// Note: Linking is temporarily disabled until GetByTrackingNumber is implemented
+	for _, tracking := range trackingNumbers {
+		p.logger.Debug("Would link email to shipment",
+			"email_id", emailEntry.ID,
+			"tracking_number", tracking.Number)
+		// TODO: Implement proper linking when GetByTrackingNumber is available
+	}
+
+	return nil
+}
+
+// linkEmailToShipment links an email to a shipment by tracking number
+func (p *TimeBasedEmailProcessor) linkEmailToShipment(emailID int, trackingNumber string) error {
+	if p.shipmentStore == nil {
+		return fmt.Errorf("shipment store not available")
+	}
+
+	// Find the shipment by tracking number using direct SQL query
+	// Since GetByTrackingNumber doesn't exist, we'll query directly
+	shipmentID, err := p.findShipmentIDByTrackingNumber(trackingNumber)
+	if err != nil {
+		return fmt.Errorf("failed to find shipment with tracking number %s: %w", trackingNumber, err)
+	}
+
+	// Create the email-shipment link
+	if err := p.emailStore.LinkEmailToShipment(emailID, shipmentID, "automatic", trackingNumber, "email-tracker"); err != nil {
+		return fmt.Errorf("failed to create email-shipment link: %w", err)
+	}
+
+	p.logger.Debug("Linked email to shipment",
 		"email_id", emailID,
+		"shipment_id", shipmentID,
 		"tracking_number", trackingNumber)
 
 	return nil
 }
 
-// createOrUpdateThread creates or updates thread information
-func (p *TimeBasedEmailProcessor) createOrUpdateThread(msg *email.EmailMessage) error {
-	// Extract participants from the From field (simplified)
-	participants := []string{msg.From}
-	participantsJSON, _ := json.Marshal(participants)
-
-	thread := &database.EmailThread{
-		GmailThreadID:    msg.ThreadID,
-		Subject:          msg.Subject,
-		Participants:     string(participantsJSON),
-		MessageCount:     1, // This would be calculated properly in a real implementation
-		FirstMessageDate: msg.Date,
-		LastMessageDate:  msg.Date,
-	}
-
-	if err := p.emailStore.CreateOrUpdateThread(thread); err != nil {
-		return fmt.Errorf("failed to create/update thread: %w", err)
-	}
-
-	p.metrics.incrementThreadsCreated()
-	return nil
+// findShipmentIDByTrackingNumber finds a shipment ID by tracking number
+func (p *TimeBasedEmailProcessor) findShipmentIDByTrackingNumber(trackingNumber string) (int, error) {
+	// We need direct database access for this query
+	// For now, let's return an error and handle linking later
+	// This is a temporary solution until we can implement proper database access
+	return 0, fmt.Errorf("shipment linking not yet implemented - tracking number: %s", trackingNumber)
 }
 
 // incrementTotalScans safely increments the total scans counter
