@@ -64,6 +64,16 @@ func setEmailDefaults(v *viper.Viper) {
 	v.SetDefault("processing.use_hybrid_validation", true)
 	v.SetDefault("processing.debug_mode", false)
 
+	// Time-based scanning defaults
+	v.SetDefault("time_based.enabled", false)
+	v.SetDefault("time_based.scan_days", 30)
+	v.SetDefault("time_based.body_storage_enabled", true)
+	v.SetDefault("time_based.retention_days", 90)
+	v.SetDefault("time_based.max_emails_per_scan", 100)
+	v.SetDefault("time_based.unread_only", false)
+	v.SetDefault("time_based.retry_count", 3)
+	v.SetDefault("time_based.retry_delay", "1s")
+
 	// API defaults
 	v.SetDefault("api.url", "http://localhost:8080")
 	v.SetDefault("api.timeout", "30s")
@@ -124,6 +134,16 @@ func setupEmailEnvBinding(v *viper.Viper) {
 		"processing.use_hybrid_validation": "EMAIL_PROCESSING_USE_HYBRID_VALIDATION",
 		"processing.debug_mode":           "EMAIL_PROCESSING_DEBUG_MODE",
 		
+		// Time-based scanning
+		"time_based.enabled":              "EMAIL_TIME_BASED_ENABLED",
+		"time_based.scan_days":            "EMAIL_TIME_BASED_SCAN_DAYS",
+		"time_based.body_storage_enabled": "EMAIL_TIME_BASED_BODY_STORAGE_ENABLED",
+		"time_based.retention_days":       "EMAIL_TIME_BASED_RETENTION_DAYS",
+		"time_based.max_emails_per_scan":  "EMAIL_TIME_BASED_MAX_EMAILS_PER_SCAN",
+		"time_based.unread_only":          "EMAIL_TIME_BASED_UNREAD_ONLY",
+		"time_based.retry_count":          "EMAIL_TIME_BASED_RETRY_COUNT",
+		"time_based.retry_delay":          "EMAIL_TIME_BASED_RETRY_DELAY",
+		
 		// API
 		"api.url":            "EMAIL_API_URL",
 		"api.timeout":        "EMAIL_API_TIMEOUT",
@@ -181,6 +201,16 @@ func setupEmailEnvBinding(v *viper.Viper) {
 		"processing.max_candidates":       "EMAIL_MAX_CANDIDATES",
 		"processing.use_hybrid_validation": "EMAIL_USE_HYBRID_VALIDATION",
 		"processing.debug_mode":           "EMAIL_DEBUG_MODE",
+		
+		// Time-based scanning (backward compatibility)
+		"time_based.enabled":              "EMAIL_SCAN_DAYS",    // If EMAIL_SCAN_DAYS is set, enable time-based
+		"time_based.scan_days":            "EMAIL_SCAN_DAYS",
+		"time_based.body_storage_enabled": "EMAIL_BODY_STORAGE_ENABLED",
+		"time_based.retention_days":       "EMAIL_RETENTION_DAYS",
+		"time_based.max_emails_per_scan":  "EMAIL_MAX_EMAILS_PER_SCAN",
+		"time_based.unread_only":          "EMAIL_TIME_BASED_UNREAD_ONLY",
+		"time_based.retry_count":          "EMAIL_TIME_BASED_RETRY_COUNT",
+		"time_based.retry_delay":          "EMAIL_TIME_BASED_RETRY_DELAY",
 		
 		// API
 		"api.url":            "EMAIL_API_URL",
@@ -284,6 +314,25 @@ func unmarshalEmailConfig(v *viper.Viper, config *EmailConfig) error {
 	config.Processing.MaxCandidates = v.GetInt("processing.max_candidates")
 	config.Processing.UseHybridValidation = v.GetBool("processing.use_hybrid_validation")
 	config.Processing.DebugMode = v.GetBool("processing.debug_mode")
+
+	// Time-based scanning configuration
+	config.TimeBased.Enabled = v.GetBool("time_based.enabled")
+	config.TimeBased.ScanDays = v.GetInt("time_based.scan_days")
+	config.TimeBased.BodyStorageEnabled = v.GetBool("time_based.body_storage_enabled")
+	config.TimeBased.RetentionDays = v.GetInt("time_based.retention_days")
+	config.TimeBased.MaxEmailsPerScan = v.GetInt("time_based.max_emails_per_scan")
+	config.TimeBased.UnreadOnly = v.GetBool("time_based.unread_only")
+	config.TimeBased.RetryCount = v.GetInt("time_based.retry_count")
+
+	config.TimeBased.RetryDelay, err = time.ParseDuration(v.GetString("time_based.retry_delay"))
+	if err != nil {
+		return fmt.Errorf("invalid time-based retry delay: %w", err)
+	}
+
+	// Enable time-based scanning if EMAIL_SCAN_DAYS is set (backward compatibility)
+	if v.GetInt("time_based.scan_days") > 0 && !config.TimeBased.Enabled {
+		config.TimeBased.Enabled = true
+	}
 
 	// API configuration
 	config.API.URL = v.GetString("api.url")
