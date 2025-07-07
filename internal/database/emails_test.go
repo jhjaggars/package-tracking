@@ -33,7 +33,7 @@ func createEmailTables(db *sql.DB) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		gmail_message_id TEXT UNIQUE NOT NULL,
 		gmail_thread_id TEXT NOT NULL,
-		from_address TEXT NOT NULL,
+		sender TEXT NOT NULL,
 		subject TEXT NOT NULL,
 		date DATETIME NOT NULL,
 		body_text TEXT,

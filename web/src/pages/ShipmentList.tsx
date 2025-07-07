@@ -4,6 +4,7 @@ import { Package, Search, Plus, RefreshCw, Eye } from 'lucide-react';
 import { useShipments } from '../hooks/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ShipmentStatusBadge, formatDateOnly } from '../components/shared';
@@ -78,30 +79,32 @@ export function ShipmentList() {
             </div>
             
             <div className="flex space-x-2">
-              <select
-                value={filterCarrier}
-                onChange={(e) => setFilterCarrier(e.target.value)}
-                className="px-3 py-2 text-sm rounded-md border border-input bg-background"
-              >
-                <option value="">All Carriers</option>
-                {carriers.map(carrier => (
-                  <option key={carrier} value={carrier}>
-                    {carrier.toUpperCase()}
-                  </option>
-                ))}
-              </select>
+              <Select value={filterCarrier || "all"} onValueChange={(value) => setFilterCarrier(value === "all" ? "" : value)}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="All Carriers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Carriers</SelectItem>
+                  {carriers.map(carrier => (
+                    <SelectItem key={carrier} value={carrier}>
+                      {carrier.toUpperCase()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2 text-sm rounded-md border border-input bg-background"
-              >
-                <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="delivered">Delivered</option>
-                <option value="in_transit">In Transit</option>
-                <option value="exception">Exception</option>
-              </select>
+              <Select value={filterStatus || "all"} onValueChange={(value) => setFilterStatus(value === "all" ? "" : value)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="in_transit">In Transit</SelectItem>
+                  <SelectItem value="exception">Exception</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>

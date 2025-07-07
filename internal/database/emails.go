@@ -65,7 +65,7 @@ func NewEmailStore(db *sql.DB) *EmailStore {
 
 // GetByGmailMessageID retrieves an email by Gmail message ID
 func (e *EmailStore) GetByGmailMessageID(gmailMessageID string) (*EmailBodyEntry, error) {
-	query := `SELECT id, gmail_message_id, gmail_thread_id, from_address, subject, date, 
+	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
 			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
 			  processed_at, status, tracking_numbers, error_message, created_at, updated_at
 			  FROM processed_emails WHERE gmail_message_id = ?`
@@ -87,7 +87,7 @@ func (e *EmailStore) GetByGmailMessageID(gmailMessageID string) (*EmailBodyEntry
 
 // GetByShipmentID retrieves all emails linked to a shipment
 func (e *EmailStore) GetByShipmentID(shipmentID int) ([]EmailBodyEntry, error) {
-	query := `SELECT pe.id, pe.gmail_message_id, pe.gmail_thread_id, pe.from_address, 
+	query := `SELECT pe.id, pe.gmail_message_id, pe.gmail_thread_id, pe.sender, 
 			  pe.subject, pe.date, pe.body_text, pe.body_html, pe.body_compressed,
 			  pe.internal_timestamp, pe.scan_method, pe.processed_at, pe.status,
 			  pe.tracking_numbers, pe.error_message, pe.created_at, pe.updated_at
@@ -122,7 +122,7 @@ func (e *EmailStore) GetByShipmentID(shipmentID int) ([]EmailBodyEntry, error) {
 
 // GetByShipmentIDPaginated retrieves emails linked to a shipment with pagination
 func (e *EmailStore) GetByShipmentIDPaginated(shipmentID int, limit, offset int) ([]EmailBodyEntry, error) {
-	query := `SELECT pe.id, pe.gmail_message_id, pe.gmail_thread_id, pe.from_address, 
+	query := `SELECT pe.id, pe.gmail_message_id, pe.gmail_thread_id, pe.sender, 
 		  pe.subject, pe.date, pe.body_text, pe.body_html, pe.body_compressed,
 		  pe.internal_timestamp, pe.scan_method, pe.processed_at, pe.status,
 		  pe.tracking_numbers, pe.error_message, pe.created_at, pe.updated_at
@@ -181,7 +181,7 @@ func (e *EmailStore) CreateOrUpdate(email *EmailBodyEntry) error {
 
 // create creates a new email entry
 func (e *EmailStore) create(email *EmailBodyEntry) error {
-	query := `INSERT INTO processed_emails (gmail_message_id, gmail_thread_id, from_address, 
+	query := `INSERT INTO processed_emails (gmail_message_id, gmail_thread_id, sender, 
 			  subject, date, body_text, body_html, body_compressed, internal_timestamp, 
 			  scan_method, processed_at, status, tracking_numbers, error_message) 
 			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -206,7 +206,7 @@ func (e *EmailStore) create(email *EmailBodyEntry) error {
 
 // update updates an existing email entry
 func (e *EmailStore) update(email *EmailBodyEntry) error {
-	query := `UPDATE processed_emails SET gmail_thread_id = ?, from_address = ?, 
+	query := `UPDATE processed_emails SET gmail_thread_id = ?, sender = ?, 
 			  subject = ?, date = ?, body_text = ?, body_html = ?, body_compressed = ?,
 			  internal_timestamp = ?, scan_method = ?, processed_at = ?, status = ?,
 			  tracking_numbers = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
@@ -353,7 +353,7 @@ func (e *EmailStore) UnlinkEmailFromShipment(emailID, shipmentID int) error {
 
 // GetEmailsByThreadID retrieves all emails in a thread
 func (e *EmailStore) GetEmailsByThreadID(gmailThreadID string) ([]EmailBodyEntry, error) {
-	query := `SELECT id, gmail_message_id, gmail_thread_id, from_address, subject, date, 
+	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
 			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
 			  processed_at, status, tracking_numbers, error_message, created_at, updated_at
 			  FROM processed_emails WHERE gmail_thread_id = ?
@@ -385,7 +385,7 @@ func (e *EmailStore) GetEmailsByThreadID(gmailThreadID string) ([]EmailBodyEntry
 
 // GetEmailsSince retrieves emails processed since a specific timestamp
 func (e *EmailStore) GetEmailsSince(since time.Time) ([]EmailBodyEntry, error) {
-	query := `SELECT id, gmail_message_id, gmail_thread_id, from_address, subject, date, 
+	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
 			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
 			  processed_at, status, tracking_numbers, error_message, created_at, updated_at
 			  FROM processed_emails WHERE internal_timestamp >= ?
