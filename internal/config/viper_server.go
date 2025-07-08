@@ -8,6 +8,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+// DEPRECATED: This file provides complex Viper-based multi-format configuration support.
+// This approach is deprecated in favor of the simplified configuration system.
+// Use LoadSimplifiedConfig() from simplified.go instead.
+// See internal/parser/DEPRECATED.md for migration guide.
+
 // LoadServerConfigWithViper loads server configuration using Viper
 func LoadServerConfigWithViper(v *viper.Viper) (*Config, error) {
 	// Set defaults

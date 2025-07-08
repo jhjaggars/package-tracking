@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"package-tracking/internal/parser"
 )
 
 // MockEmailClient represents a simplified email client interface
@@ -39,9 +40,9 @@ type MockSimplifiedTrackingExtractor struct {
 	mock.Mock
 }
 
-func (m *MockSimplifiedTrackingExtractor) ExtractTrackingNumbers(content string) ([]TrackingCandidate, error) {
+func (m *MockSimplifiedTrackingExtractor) ExtractTrackingNumbers(content string) ([]parser.TrackingResult, error) {
 	args := m.Called(content)
-	return args.Get(0).([]TrackingCandidate), args.Error(1)
+	return args.Get(0).([]parser.TrackingResult), args.Error(1)
 }
 
 // MockSimplifiedDescriptionExtractor represents a simplified description extractor
@@ -49,9 +50,14 @@ type MockSimplifiedDescriptionExtractor struct {
 	mock.Mock
 }
 
-func (m *MockSimplifiedDescriptionExtractor) ExtractDescription(content string, trackingNumber string) (string, error) {
-	args := m.Called(content, trackingNumber)
+func (m *MockSimplifiedDescriptionExtractor) ExtractDescription(ctx context.Context, content string, trackingNumber string) (string, error) {
+	args := m.Called(ctx, content, trackingNumber)
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockSimplifiedDescriptionExtractor) IsEnabled() bool {
+	args := m.Called()
+	return args.Bool(0)
 }
 
 // MockShipmentCreator represents a simplified shipment creation interface
@@ -79,61 +85,13 @@ func (m *MockEmailStateManager) MarkProcessed(messageID string) error {
 	return args.Error(0)
 }
 
-// Test types based on simplified architecture
-type EmailMessage struct {
-	ID      string
-	From    string
-	Subject string
-	Body    string
-	Date    time.Time
-}
-
-type TrackingCandidate struct {
-	Number  string
-	Carrier string
-	Valid   bool
-}
-
-type ShipmentRequest struct {
-	TrackingNumber string
-	Carrier        string
-	Description    string
-}
-
-// SimplifiedEmailProcessor represents the simplified email processor
-type SimplifiedEmailProcessor struct {
-	emailClient          EmailClient
-	trackingExtractor    SimplifiedTrackingExtractor
-	descriptionExtractor SimplifiedDescriptionExtractor
-	shipmentCreator      ShipmentCreator
-	stateManager         EmailStateManager
-	daysToScan           int
-	dryRun               bool
-}
-
-// Interfaces for the simplified architecture
-type EmailClient interface {
-	SearchEmails(ctx context.Context, query string, since time.Time) ([]EmailMessage, error)
-	GetMessage(ctx context.Context, messageID string) (*EmailMessage, error)
-	HealthCheck(ctx context.Context) error
-	Close() error
-}
-
+// Test interfaces for mocking
 type SimplifiedTrackingExtractor interface {
-	ExtractTrackingNumbers(content string) ([]TrackingCandidate, error)
+	ExtractTrackingNumbers(content string) ([]parser.TrackingResult, error)
 }
 
 type SimplifiedDescriptionExtractor interface {
-	ExtractDescription(content string, trackingNumber string) (string, error)
-}
-
-type ShipmentCreator interface {
-	CreateShipment(ctx context.Context, req ShipmentRequest) error
-}
-
-type EmailStateManager interface {
-	IsProcessed(messageID string) (bool, error)
-	MarkProcessed(messageID string) error
+	ExtractDescription(ctx context.Context, content string, trackingNumber string) (string, error)
 }
 
 // Test for simplified email processor initialization
@@ -144,19 +102,17 @@ func TestSimplifiedEmailProcessor_New(t *testing.T) {
 	shipmentCreator := &MockShipmentCreator{}
 	stateManager := &MockEmailStateManager{}
 
-	processor := &SimplifiedEmailProcessor{
-		emailClient:          emailClient,
-		trackingExtractor:    trackingExtractor,
-		descriptionExtractor: descriptionExtractor,
-		shipmentCreator:      shipmentCreator,
-		stateManager:         stateManager,
-		daysToScan:           30,
-		dryRun:               false,
-	}
+	processor := NewSimplifiedEmailProcessor(
+		emailClient,
+		trackingExtractor,
+		descriptionExtractor,
+		shipmentCreator,
+		stateManager,
+		30,
+		false,
+	)
 
 	assert.NotNil(t, processor)
-	assert.Equal(t, 30, processor.daysToScan)
-	assert.False(t, processor.dryRun)
 }
 
 // Test for processing emails with tracking numbers
@@ -168,15 +124,15 @@ func TestSimplifiedEmailProcessor_ProcessEmails_WithTrackingNumbers(t *testing.T
 	shipmentCreator := &MockShipmentCreator{}
 	stateManager := &MockEmailStateManager{}
 
-	processor := &SimplifiedEmailProcessor{
-		emailClient:          emailClient,
-		trackingExtractor:    trackingExtractor,
-		descriptionExtractor: descriptionExtractor,
-		shipmentCreator:      shipmentCreator,
-		stateManager:         stateManager,
-		daysToScan:           30,
-		dryRun:               false,
-	}
+	processor := NewSimplifiedEmailProcessor(
+		emailClient,
+		trackingExtractor,
+		descriptionExtractor,
+		shipmentCreator,
+		stateManager,
+		30,
+		false,
+	)
 
 	// Mock email message
 	emailMsg := EmailMessage{
@@ -187,8 +143,8 @@ func TestSimplifiedEmailProcessor_ProcessEmails_WithTrackingNumbers(t *testing.T
 		Date:    time.Now(),
 	}
 
-	// Mock tracking candidate
-	trackingCandidate := TrackingCandidate{
+	// Mock tracking result
+	trackingResult := parser.TrackingResult{
 		Number:  "1Z999AA1234567890",
 		Carrier: "ups",
 		Valid:   true,
@@ -202,10 +158,10 @@ func TestSimplifiedEmailProcessor_ProcessEmails_WithTrackingNumbers(t *testing.T
 
 	stateManager.On("IsProcessed", "msg123").Return(false, nil)
 
-	trackingExtractor.On("ExtractTrackingNumbers", emailMsg.Body).
-		Return([]TrackingCandidate{trackingCandidate}, nil)
+	trackingExtractor.On("ExtractTrackingNumbers", emailMsg.Subject+" "+emailMsg.Body).
+		Return([]parser.TrackingResult{trackingResult}, nil)
 
-	descriptionExtractor.On("ExtractDescription", emailMsg.Body, "1Z999AA1234567890").
+	descriptionExtractor.On("ExtractDescription", ctx, emailMsg.Subject+" "+emailMsg.Body, "1Z999AA1234567890").
 		Return("Test package description", nil)
 
 	shipmentCreator.On("CreateShipment", ctx, ShipmentRequest{
@@ -237,15 +193,15 @@ func TestSimplifiedEmailProcessor_ProcessEmails_NoTrackingNumbers(t *testing.T) 
 	shipmentCreator := &MockShipmentCreator{}
 	stateManager := &MockEmailStateManager{}
 
-	processor := &SimplifiedEmailProcessor{
-		emailClient:          emailClient,
-		trackingExtractor:    trackingExtractor,
-		descriptionExtractor: descriptionExtractor,
-		shipmentCreator:      shipmentCreator,
-		stateManager:         stateManager,
-		daysToScan:           30,
-		dryRun:               false,
-	}
+	processor := NewSimplifiedEmailProcessor(
+		emailClient,
+		trackingExtractor,
+		descriptionExtractor,
+		shipmentCreator,
+		stateManager,
+		30,
+		false,
+	)
 
 	// Mock email message
 	emailMsg := EmailMessage{
@@ -264,8 +220,8 @@ func TestSimplifiedEmailProcessor_ProcessEmails_NoTrackingNumbers(t *testing.T) 
 
 	stateManager.On("IsProcessed", "msg123").Return(false, nil)
 
-	trackingExtractor.On("ExtractTrackingNumbers", emailMsg.Body).
-		Return([]TrackingCandidate{}, nil)
+	trackingExtractor.On("ExtractTrackingNumbers", emailMsg.Subject+" "+emailMsg.Body).
+		Return([]parser.TrackingResult{}, nil)
 
 	stateManager.On("MarkProcessed", "msg123").Return(nil)
 
@@ -292,15 +248,15 @@ func TestSimplifiedEmailProcessor_ProcessEmails_DryRun(t *testing.T) {
 	shipmentCreator := &MockShipmentCreator{}
 	stateManager := &MockEmailStateManager{}
 
-	processor := &SimplifiedEmailProcessor{
-		emailClient:          emailClient,
-		trackingExtractor:    trackingExtractor,
-		descriptionExtractor: descriptionExtractor,
-		shipmentCreator:      shipmentCreator,
-		stateManager:         stateManager,
-		daysToScan:           30,
-		dryRun:               true, // Dry run mode
-	}
+	processor := NewSimplifiedEmailProcessor(
+		emailClient,
+		trackingExtractor,
+		descriptionExtractor,
+		shipmentCreator,
+		stateManager,
+		30,
+		true, // Dry run mode
+	)
 
 	// Mock email message
 	emailMsg := EmailMessage{
@@ -311,8 +267,8 @@ func TestSimplifiedEmailProcessor_ProcessEmails_DryRun(t *testing.T) {
 		Date:    time.Now(),
 	}
 
-	// Mock tracking candidate
-	trackingCandidate := TrackingCandidate{
+	// Mock tracking result
+	trackingResult := parser.TrackingResult{
 		Number:  "1Z999AA1234567890",
 		Carrier: "ups",
 		Valid:   true,
@@ -326,10 +282,10 @@ func TestSimplifiedEmailProcessor_ProcessEmails_DryRun(t *testing.T) {
 
 	stateManager.On("IsProcessed", "msg123").Return(false, nil)
 
-	trackingExtractor.On("ExtractTrackingNumbers", emailMsg.Body).
-		Return([]TrackingCandidate{trackingCandidate}, nil)
+	trackingExtractor.On("ExtractTrackingNumbers", emailMsg.Subject+" "+emailMsg.Body).
+		Return([]parser.TrackingResult{trackingResult}, nil)
 
-	descriptionExtractor.On("ExtractDescription", emailMsg.Body, "1Z999AA1234567890").
+	descriptionExtractor.On("ExtractDescription", ctx, emailMsg.Subject+" "+emailMsg.Body, "1Z999AA1234567890").
 		Return("Test package description", nil)
 
 	stateManager.On("MarkProcessed", "msg123").Return(nil)
@@ -357,15 +313,15 @@ func TestSimplifiedEmailProcessor_ProcessEmails_AlreadyProcessed(t *testing.T) {
 	shipmentCreator := &MockShipmentCreator{}
 	stateManager := &MockEmailStateManager{}
 
-	processor := &SimplifiedEmailProcessor{
-		emailClient:          emailClient,
-		trackingExtractor:    trackingExtractor,
-		descriptionExtractor: descriptionExtractor,
-		shipmentCreator:      shipmentCreator,
-		stateManager:         stateManager,
-		daysToScan:           30,
-		dryRun:               false,
-	}
+	processor := NewSimplifiedEmailProcessor(
+		emailClient,
+		trackingExtractor,
+		descriptionExtractor,
+		shipmentCreator,
+		stateManager,
+		30,
+		false,
+	)
 
 	// Mock email message
 	emailMsg := EmailMessage{
@@ -398,9 +354,3 @@ func TestSimplifiedEmailProcessor_ProcessEmails_AlreadyProcessed(t *testing.T) {
 	shipmentCreator.AssertNotCalled(t, "CreateShipment")
 }
 
-// Placeholder for the actual ProcessEmails method that will be implemented
-func (p *SimplifiedEmailProcessor) ProcessEmails(ctx context.Context) error {
-	// This method will be implemented after the tests are written
-	// For now, return nil to make tests compile
-	return nil
-}
