@@ -6,22 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// SimplifiedTrackingExtractor represents the simplified tracking number extractor
-type SimplifiedTrackingExtractor struct {
-	patterns map[string][]string
-}
-
-// TrackingResult represents the result of tracking extraction
-type TrackingResult struct {
-	Number  string
-	Carrier string
-	Valid   bool
-}
-
-// SimplifiedTrackingExtractorInterface defines the interface for tracking extraction
-type SimplifiedTrackingExtractorInterface interface {
-	ExtractTrackingNumbers(content string) ([]TrackingResult, error)
-}
 
 // Test for creating a new simplified tracking extractor
 func TestNewSimplifiedTrackingExtractor(t *testing.T) {
@@ -340,15 +324,3 @@ func TestSimplifiedTrackingExtractor_CarrierHints(t *testing.T) {
 	}
 }
 
-// Placeholder for the actual NewSimplifiedTrackingExtractor constructor
-func NewSimplifiedTrackingExtractor() SimplifiedTrackingExtractorInterface {
-	// This will be implemented after the tests are written
-	return &SimplifiedTrackingExtractor{}
-}
-
-// Placeholder for the actual ExtractTrackingNumbers method
-func (s *SimplifiedTrackingExtractor) ExtractTrackingNumbers(content string) ([]TrackingResult, error) {
-	// This method will be implemented after the tests are written
-	// For now, return empty results to make tests compile
-	return []TrackingResult{}, nil
-}

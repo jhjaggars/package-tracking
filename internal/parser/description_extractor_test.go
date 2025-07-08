@@ -9,24 +9,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// SimplifiedDescriptionExtractor represents the simplified description extractor
-type SimplifiedDescriptionExtractor struct {
-	llmClient LLMClient
-	enabled   bool
-}
-
-// DescriptionResult represents the result of description extraction
-type DescriptionResult struct {
-	Description string
-	Merchant    string
-	Confidence  float64
-}
-
-// LLMClient interface for description extraction
-type LLMClient interface {
-	ExtractDescription(ctx context.Context, emailContent string, trackingNumber string) (DescriptionResult, error)
-}
-
 // MockLLMClient for testing
 type MockLLMClient struct {
 	mock.Mock
@@ -35,12 +17,6 @@ type MockLLMClient struct {
 func (m *MockLLMClient) ExtractDescription(ctx context.Context, emailContent string, trackingNumber string) (DescriptionResult, error) {
 	args := m.Called(ctx, emailContent, trackingNumber)
 	return args.Get(0).(DescriptionResult), args.Error(1)
-}
-
-// SimplifiedDescriptionExtractorInterface defines the interface for description extraction
-type SimplifiedDescriptionExtractorInterface interface {
-	ExtractDescription(ctx context.Context, emailContent string, trackingNumber string) (string, error)
-	IsEnabled() bool
 }
 
 // Test for creating a new simplified description extractor
@@ -402,24 +378,3 @@ func TestSimplifiedDescriptionExtractor_FallbackBehavior(t *testing.T) {
 	}
 }
 
-// Placeholder for the actual NewSimplifiedDescriptionExtractor constructor
-func NewSimplifiedDescriptionExtractor(llmClient LLMClient, enabled bool) SimplifiedDescriptionExtractorInterface {
-	// This will be implemented after the tests are written
-	return &SimplifiedDescriptionExtractor{
-		llmClient: llmClient,
-		enabled:   enabled,
-	}
-}
-
-// Placeholder for the actual ExtractDescription method
-func (s *SimplifiedDescriptionExtractor) ExtractDescription(ctx context.Context, emailContent string, trackingNumber string) (string, error) {
-	// This method will be implemented after the tests are written
-	// For now, return empty string to make tests compile
-	return "", nil
-}
-
-// Placeholder for the actual IsEnabled method
-func (s *SimplifiedDescriptionExtractor) IsEnabled() bool {
-	// This method will be implemented after the tests are written
-	return s.enabled
-}
