@@ -144,7 +144,12 @@ func (db *DB) migrate() error {
 	}
 
 	// Run email tables migration
-	return db.migrateEmailTables()
+	if err := db.migrateEmailTables(); err != nil {
+		return err
+	}
+
+	// Run two-phase email processing migration
+	return db.migrateTwoPhaseEmailFields()
 }
 
 // insertDefaultCarriers adds default carrier data
@@ -432,6 +437,12 @@ func (db *DB) migrateEmailTables() error {
 			return fmt.Errorf("failed to migrate processed_emails fields: %w", err)
 		}
 		
+		// Check if two-phase processing columns need to be added
+		err = db.migrateTwoPhaseEmailFields()
+		if err != nil {
+			return fmt.Errorf("failed to migrate two-phase email fields: %w", err)
+		}
+		
 		// Check if we need to migrate from_address to sender
 		err = db.migrateFromAddressToSender()
 		if err != nil {
@@ -537,6 +548,75 @@ func (db *DB) migrateFromAddressToSender() error {
 		// in older versions. The column will be ignored in queries.
 	}
 	
+	return nil
+}
+
+// migrateTwoPhaseEmailFields adds two-phase processing fields to existing processed_emails table
+func (db *DB) migrateTwoPhaseEmailFields() error {
+	// Check if processing_phase column already exists
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM pragma_table_info('processed_emails') 
+		WHERE name = 'processing_phase'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check processing_phase column existence: %w", err)
+	}
+
+	// If two-phase columns don't exist, add them
+	if columnExists == 0 {
+		alterQueries := []string{
+			"ALTER TABLE processed_emails ADD COLUMN processing_phase TEXT DEFAULT 'legacy'",
+			"ALTER TABLE processed_emails ADD COLUMN relevance_score REAL DEFAULT 0.0",
+			"ALTER TABLE processed_emails ADD COLUMN snippet TEXT",
+			"ALTER TABLE processed_emails ADD COLUMN has_content BOOLEAN DEFAULT FALSE",
+			"ALTER TABLE processed_emails ADD COLUMN metadata_extracted_at DATETIME",
+			"ALTER TABLE processed_emails ADD COLUMN content_extracted_at DATETIME",
+		}
+
+		for _, query := range alterQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to execute two-phase migration query '%s': %w", query, err)
+			}
+		}
+
+		// Update existing records to mark them as legacy
+		_, err := db.Exec(`
+			UPDATE processed_emails 
+			SET processing_phase = 'legacy',
+				has_content = CASE 
+					WHEN body_text IS NOT NULL AND body_text != '' THEN TRUE
+					WHEN body_html IS NOT NULL AND body_html != '' THEN TRUE
+					WHEN body_compressed IS NOT NULL THEN TRUE
+					ELSE FALSE
+				END,
+				metadata_extracted_at = created_at,
+				content_extracted_at = CASE 
+					WHEN body_text IS NOT NULL OR body_html IS NOT NULL OR body_compressed IS NOT NULL THEN created_at
+					ELSE NULL
+				END
+			WHERE processing_phase = 'legacy'
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to update existing records for two-phase processing: %w", err)
+		}
+
+		// Add new indexes for two-phase processing
+		indexQueries := []string{
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_processing_phase ON processed_emails(processing_phase)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_relevance_score ON processed_emails(relevance_score)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_has_content ON processed_emails(has_content)",
+			"CREATE INDEX IF NOT EXISTS idx_processed_emails_metadata_time ON processed_emails(metadata_extracted_at)",
+		}
+
+		for _, query := range indexQueries {
+			if _, err := db.Exec(query); err != nil {
+				return fmt.Errorf("failed to create two-phase processing index '%s': %w", query, err)
+			}
+		}
+	}
+
 	return nil
 }
 

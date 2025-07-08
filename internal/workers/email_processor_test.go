@@ -65,6 +65,37 @@ func (m *mockEmailClient) Close() error {
 	return nil
 }
 
+func (m *mockEmailClient) GetMessageMetadata(id string) (*email.EmailMessage, error) {
+	// For testing, just return the same as GetMessage but with empty content
+	msg, err := m.GetMessage(id)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Create a copy with no content for metadata-only
+	metadata := *msg
+	metadata.PlainText = ""
+	metadata.HTMLText = ""
+	metadata.Snippet = "Email snippet for " + id
+	
+	return &metadata, nil
+}
+
+func (m *mockEmailClient) GetMessagesSinceMetadataOnly(since time.Time) ([]email.EmailMessage, error) {
+	var result []email.EmailMessage
+	for _, msg := range m.emails {
+		if msg.Date.After(since) {
+			// Create metadata-only version
+			metadata := msg
+			metadata.PlainText = ""
+			metadata.HTMLText = ""
+			metadata.Snippet = "Email snippet for " + msg.ID
+			result = append(result, metadata)
+		}
+	}
+	return result, nil
+}
+
 type mockStateManager struct {
 	processed   map[string]bool
 	mu          sync.RWMutex

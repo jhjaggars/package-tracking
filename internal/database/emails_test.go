@@ -9,21 +9,17 @@ import (
 )
 
 func setupTestEmailDB(t *testing.T) (*sql.DB, func()) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	// Use the main Open function which runs all migrations
+	dbWrapper, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
 
-	// Create tables (we'll need to run migrations)
-	if err := createEmailTables(db); err != nil {
-		t.Fatalf("Failed to create test tables: %v", err)
-	}
-
 	cleanup := func() {
-		db.Close()
+		dbWrapper.Close()
 	}
 
-	return db, cleanup
+	return dbWrapper.DB, cleanup
 }
 
 // createEmailTables creates the email-related tables for testing
@@ -137,6 +133,11 @@ func TestEmailStore_CreateOrUpdate(t *testing.T) {
 		ProcessedAt:       time.Now(),
 		Status:            "processed",
 		TrackingNumbers:   `["1Z999AA1234567890"]`,
+		// Two-phase processing fields with defaults
+		ProcessingPhase:  "legacy",
+		RelevanceScore:   0.0,
+		Snippet:          "",
+		HasContent:       true,
 	}
 
 	err := store.CreateOrUpdate(email)
@@ -289,6 +290,11 @@ func TestEmailStore_EmailShipmentLinking(t *testing.T) {
 		ProcessedAt:       time.Now(),
 		Status:            "processed",
 		TrackingNumbers:   `["1Z999AA1234567890"]`,
+		// Two-phase processing fields with defaults
+		ProcessingPhase:  "legacy",
+		RelevanceScore:   0.0,
+		Snippet:          "",
+		HasContent:       true,
 	}
 
 	err := store.CreateOrUpdate(email)
@@ -296,8 +302,21 @@ func TestEmailStore_EmailShipmentLinking(t *testing.T) {
 		t.Fatalf("Failed to create email: %v", err)
 	}
 
+	// Create a test shipment first
+	shipmentStore := NewShipmentStore(db)
+	shipment := &Shipment{
+		TrackingNumber: "1Z999AA1234567890",
+		Carrier:        "ups",
+		Description:    "Test Package",
+		Status:         "pending",
+	}
+	err = shipmentStore.Create(shipment)
+	if err != nil {
+		t.Fatalf("Failed to create test shipment: %v", err)
+	}
+
 	// Test linking email to shipment
-	shipmentID := 123
+	shipmentID := shipment.ID
 	err = store.LinkEmailToShipment(email.ID, shipmentID, "automatic", "1Z999AA1234567890", "system")
 	if err != nil {
 		t.Fatalf("Failed to link email to shipment: %v", err)
@@ -352,6 +371,11 @@ func TestEmailStore_GetEmailsByThreadID(t *testing.T) {
 			ScanMethod:        "time-based",
 			ProcessedAt:       time.Now(),
 			Status:            "processed",
+			// Two-phase processing fields with defaults
+			ProcessingPhase:  "legacy",
+			RelevanceScore:   0.0,
+			Snippet:          "",
+			HasContent:       true,
 		},
 		{
 			GmailMessageID:    "test-message-2",
@@ -364,6 +388,11 @@ func TestEmailStore_GetEmailsByThreadID(t *testing.T) {
 			ScanMethod:        "time-based",
 			ProcessedAt:       time.Now(),
 			Status:            "processed",
+			// Two-phase processing fields with defaults
+			ProcessingPhase:  "legacy",
+			RelevanceScore:   0.0,
+			Snippet:          "",
+			HasContent:       true,
 		},
 	}
 
@@ -414,6 +443,11 @@ func TestEmailStore_GetEmailsSince(t *testing.T) {
 			ScanMethod:        "time-based",
 			ProcessedAt:       now,
 			Status:            "processed",
+			// Two-phase processing fields with defaults
+			ProcessingPhase:  "legacy",
+			RelevanceScore:   0.0,
+			Snippet:          "",
+			HasContent:       true,
 		},
 		{
 			GmailMessageID:    "test-message-2",
@@ -426,6 +460,11 @@ func TestEmailStore_GetEmailsSince(t *testing.T) {
 			ScanMethod:        "time-based",
 			ProcessedAt:       now,
 			Status:            "processed",
+			// Two-phase processing fields with defaults
+			ProcessingPhase:  "legacy",
+			RelevanceScore:   0.0,
+			Snippet:          "",
+			HasContent:       true,
 		},
 	}
 
@@ -486,6 +525,11 @@ func TestEmailStore_CleanupOldEmails(t *testing.T) {
 		ScanMethod:        "time-based",
 		ProcessedAt:       oldTime,
 		Status:            "processed",
+		// Two-phase processing fields with defaults
+		ProcessingPhase:  "legacy",
+		RelevanceScore:   0.0,
+		Snippet:          "",
+		HasContent:       true,
 	}
 
 	err := store.CreateOrUpdate(email)
@@ -558,6 +602,11 @@ func TestEmailStore_IsProcessed(t *testing.T) {
 		ScanMethod:        "time-based",
 		ProcessedAt:       time.Now(),
 		Status:            "processed",
+		// Two-phase processing fields with defaults
+		ProcessingPhase:  "legacy",
+		RelevanceScore:   0.0,
+		Snippet:          "",
+		HasContent:       true,
 	}
 
 	err = store.CreateOrUpdate(email)

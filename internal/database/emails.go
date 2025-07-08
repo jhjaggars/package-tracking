@@ -11,23 +11,31 @@ import (
 
 // EmailBodyEntry represents a stored email body in the database
 type EmailBodyEntry struct {
-	ID                int       `json:"id"`
-	GmailMessageID    string    `json:"gmail_message_id"`
-	GmailThreadID     string    `json:"gmail_thread_id"`
-	From              string    `json:"from"`
-	Subject           string    `json:"subject"`
-	Date              time.Time `json:"date"`
-	BodyText          string    `json:"body_text"`
-	BodyHTML          string    `json:"body_html"`
-	BodyCompressed    []byte    `json:"body_compressed,omitempty"`
-	InternalTimestamp time.Time `json:"internal_timestamp"`
-	ScanMethod        string    `json:"scan_method"` // "search" or "time-based"
-	ProcessedAt       time.Time `json:"processed_at"`
-	Status            string    `json:"status"`
-	TrackingNumbers   string    `json:"tracking_numbers"` // JSON encoded
-	ErrorMessage      string    `json:"error_message,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                   int       `json:"id"`
+	GmailMessageID       string    `json:"gmail_message_id"`
+	GmailThreadID        string    `json:"gmail_thread_id"`
+	From                 string    `json:"from"`
+	Subject              string    `json:"subject"`
+	Date                 time.Time `json:"date"`
+	BodyText             string    `json:"body_text"`
+	BodyHTML             string    `json:"body_html"`
+	BodyCompressed       []byte    `json:"body_compressed,omitempty"`
+	InternalTimestamp    time.Time `json:"internal_timestamp"`
+	ScanMethod           string    `json:"scan_method"` // "search" or "time-based"
+	ProcessedAt          time.Time `json:"processed_at"`
+	Status               string    `json:"status"`
+	TrackingNumbers      string    `json:"tracking_numbers"` // JSON encoded
+	ErrorMessage         string    `json:"error_message,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+	
+	// Two-phase processing fields
+	ProcessingPhase      string     `json:"processing_phase"`      // "metadata_only", "content_extracted", "legacy"
+	RelevanceScore       float64    `json:"relevance_score"`       // 0.0-1.0 score for shipping relevance
+	Snippet              string     `json:"snippet"`               // Email snippet/preview text
+	HasContent           bool       `json:"has_content"`           // Whether full content has been downloaded
+	MetadataExtractedAt  *time.Time `json:"metadata_extracted_at"` // When metadata was extracted
+	ContentExtractedAt   *time.Time `json:"content_extracted_at"`  // When full content was extracted
 }
 
 // EmailThread represents a Gmail thread/conversation
@@ -67,7 +75,12 @@ func NewEmailStore(db *sql.DB) *EmailStore {
 func (e *EmailStore) GetByGmailMessageID(gmailMessageID string) (*EmailBodyEntry, error) {
 	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
 			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
-			  processed_at, status, tracking_numbers, error_message, created_at, updated_at
+			  processed_at, status, tracking_numbers, error_message, created_at, updated_at,
+			  COALESCE(processing_phase, 'legacy') as processing_phase,
+			  COALESCE(relevance_score, 0.0) as relevance_score,
+			  COALESCE(snippet, '') as snippet,
+			  COALESCE(has_content, FALSE) as has_content,
+			  metadata_extracted_at, content_extracted_at
 			  FROM processed_emails WHERE gmail_message_id = ?`
 	
 	var email EmailBodyEntry
@@ -76,7 +89,9 @@ func (e *EmailStore) GetByGmailMessageID(gmailMessageID string) (*EmailBodyEntry
 		&email.Subject, &email.Date, &email.BodyText, &email.BodyHTML,
 		&email.BodyCompressed, &email.InternalTimestamp, &email.ScanMethod,
 		&email.ProcessedAt, &email.Status, &email.TrackingNumbers,
-		&email.ErrorMessage, &email.CreatedAt, &email.UpdatedAt)
+		&email.ErrorMessage, &email.CreatedAt, &email.UpdatedAt,
+		&email.ProcessingPhase, &email.RelevanceScore, &email.Snippet,
+		&email.HasContent, &email.MetadataExtractedAt, &email.ContentExtractedAt)
 	
 	if err != nil {
 		return nil, err
@@ -183,13 +198,17 @@ func (e *EmailStore) CreateOrUpdate(email *EmailBodyEntry) error {
 func (e *EmailStore) create(email *EmailBodyEntry) error {
 	query := `INSERT INTO processed_emails (gmail_message_id, gmail_thread_id, sender, 
 			  subject, date, body_text, body_html, body_compressed, internal_timestamp, 
-			  scan_method, processed_at, status, tracking_numbers, error_message) 
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			  scan_method, processed_at, status, tracking_numbers, error_message,
+			  processing_phase, relevance_score, snippet, has_content, 
+			  metadata_extracted_at, content_extracted_at) 
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	
 	result, err := e.db.Exec(query, email.GmailMessageID, email.GmailThreadID, 
 		email.From, email.Subject, email.Date, email.BodyText, email.BodyHTML,
 		email.BodyCompressed, email.InternalTimestamp, email.ScanMethod,
-		email.ProcessedAt, email.Status, email.TrackingNumbers, email.ErrorMessage)
+		email.ProcessedAt, email.Status, email.TrackingNumbers, email.ErrorMessage,
+		email.ProcessingPhase, email.RelevanceScore, email.Snippet, email.HasContent,
+		email.MetadataExtractedAt, email.ContentExtractedAt)
 	
 	if err != nil {
 		return err
@@ -209,13 +228,18 @@ func (e *EmailStore) update(email *EmailBodyEntry) error {
 	query := `UPDATE processed_emails SET gmail_thread_id = ?, sender = ?, 
 			  subject = ?, date = ?, body_text = ?, body_html = ?, body_compressed = ?,
 			  internal_timestamp = ?, scan_method = ?, processed_at = ?, status = ?,
-			  tracking_numbers = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+			  tracking_numbers = ?, error_message = ?, processing_phase = ?, 
+			  relevance_score = ?, snippet = ?, has_content = ?, 
+			  metadata_extracted_at = ?, content_extracted_at = ?,
+			  updated_at = CURRENT_TIMESTAMP
 			  WHERE gmail_message_id = ?`
 	
 	result, err := e.db.Exec(query, email.GmailThreadID, email.From, email.Subject,
 		email.Date, email.BodyText, email.BodyHTML, email.BodyCompressed,
 		email.InternalTimestamp, email.ScanMethod, email.ProcessedAt, email.Status,
-		email.TrackingNumbers, email.ErrorMessage, email.GmailMessageID)
+		email.TrackingNumbers, email.ErrorMessage, email.ProcessingPhase,
+		email.RelevanceScore, email.Snippet, email.HasContent,
+		email.MetadataExtractedAt, email.ContentExtractedAt, email.GmailMessageID)
 	
 	if err != nil {
 		return err
@@ -450,6 +474,80 @@ func (e *EmailStore) IsProcessed(gmailMessageID string) (bool, error) {
 	return count > 0, nil
 }
 
+// GetEmailsForTrackingNumber finds emails that contain a specific tracking number
+func (e *EmailStore) GetEmailsForTrackingNumber(trackingNumber string) ([]EmailBodyEntry, error) {
+	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
+			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
+			  processed_at, status, tracking_numbers, error_message, created_at, updated_at
+			  FROM processed_emails 
+			  WHERE tracking_numbers LIKE ? OR tracking_numbers LIKE ? OR tracking_numbers LIKE ?
+			  ORDER BY date DESC`
+	
+	// Create search patterns for JSON array containing the tracking number
+	pattern1 := `%"` + trackingNumber + `"%`           // "tracking_number"
+	pattern2 := `%[` + trackingNumber + `%`             // [tracking_number
+	pattern3 := `% ` + trackingNumber + `%`             // space tracking_number
+	
+	rows, err := e.db.Query(query, pattern1, pattern2, pattern3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var emails []EmailBodyEntry
+	for rows.Next() {
+		var email EmailBodyEntry
+		err := rows.Scan(
+			&email.ID, &email.GmailMessageID, &email.GmailThreadID, &email.From,
+			&email.Subject, &email.Date, &email.BodyText, &email.BodyHTML,
+			&email.BodyCompressed, &email.InternalTimestamp, &email.ScanMethod,
+			&email.ProcessedAt, &email.Status, &email.TrackingNumbers,
+			&email.ErrorMessage, &email.CreatedAt, &email.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		emails = append(emails, email)
+	}
+	
+	return emails, rows.Err()
+}
+
+// GetEmailsWithTrackingNumbers retrieves all emails that have tracking numbers
+func (e *EmailStore) GetEmailsWithTrackingNumbers() ([]EmailBodyEntry, error) {
+	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
+			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
+			  processed_at, status, tracking_numbers, error_message, created_at, updated_at
+			  FROM processed_emails 
+			  WHERE tracking_numbers IS NOT NULL 
+			  AND tracking_numbers != '' 
+			  AND tracking_numbers != '[]'
+			  AND tracking_numbers != 'null'
+			  ORDER BY date DESC`
+	
+	rows, err := e.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var emails []EmailBodyEntry
+	for rows.Next() {
+		var email EmailBodyEntry
+		err := rows.Scan(
+			&email.ID, &email.GmailMessageID, &email.GmailThreadID, &email.From,
+			&email.Subject, &email.Date, &email.BodyText, &email.BodyHTML,
+			&email.BodyCompressed, &email.InternalTimestamp, &email.ScanMethod,
+			&email.ProcessedAt, &email.Status, &email.TrackingNumbers,
+			&email.ErrorMessage, &email.CreatedAt, &email.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		emails = append(emails, email)
+	}
+	
+	return emails, rows.Err()
+}
+
 // CompressEmailBody compresses email body text for efficient storage
 func CompressEmailBody(text string) ([]byte, error) {
 	if text == "" {
@@ -489,4 +587,155 @@ func DecompressEmailBody(compressed []byte) (string, error) {
 	}
 	
 	return string(decompressed), nil
+}
+
+// CreateMetadataEntry creates an email entry with metadata only (no content)
+func (e *EmailStore) CreateMetadataEntry(email *EmailBodyEntry) error {
+	// Ensure this is marked as metadata-only phase
+	email.ProcessingPhase = "metadata_only"
+	email.HasContent = false
+	now := time.Now()
+	email.MetadataExtractedAt = &now
+	
+	return e.create(email)
+}
+
+// UpdateWithContent updates an existing metadata-only entry with full email content
+func (e *EmailStore) UpdateWithContent(gmailMessageID string, bodyText, bodyHTML string, compressed []byte) error {
+	now := time.Now()
+	query := `UPDATE processed_emails SET 
+			  body_text = ?, body_html = ?, body_compressed = ?,
+			  processing_phase = 'content_extracted', has_content = TRUE,
+			  content_extracted_at = ?, updated_at = CURRENT_TIMESTAMP
+			  WHERE gmail_message_id = ?`
+	
+	result, err := e.db.Exec(query, bodyText, bodyHTML, compressed, now, gmailMessageID)
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
+}
+
+// GetMetadataOnlyEmails retrieves emails that only have metadata (no content downloaded)
+func (e *EmailStore) GetMetadataOnlyEmails(limit int) ([]EmailBodyEntry, error) {
+	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
+			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
+			  processed_at, status, tracking_numbers, error_message, created_at, updated_at,
+			  COALESCE(processing_phase, 'legacy') as processing_phase,
+			  COALESCE(relevance_score, 0.0) as relevance_score,
+			  COALESCE(snippet, '') as snippet,
+			  COALESCE(has_content, FALSE) as has_content,
+			  metadata_extracted_at, content_extracted_at
+			  FROM processed_emails 
+			  WHERE processing_phase = 'metadata_only' AND has_content = FALSE
+			  ORDER BY relevance_score DESC, date DESC`
+	
+	args := []interface{}{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	
+	rows, err := e.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var emails []EmailBodyEntry
+	for rows.Next() {
+		var email EmailBodyEntry
+		err := rows.Scan(
+			&email.ID, &email.GmailMessageID, &email.GmailThreadID, &email.From,
+			&email.Subject, &email.Date, &email.BodyText, &email.BodyHTML,
+			&email.BodyCompressed, &email.InternalTimestamp, &email.ScanMethod,
+			&email.ProcessedAt, &email.Status, &email.TrackingNumbers,
+			&email.ErrorMessage, &email.CreatedAt, &email.UpdatedAt,
+			&email.ProcessingPhase, &email.RelevanceScore, &email.Snippet,
+			&email.HasContent, &email.MetadataExtractedAt, &email.ContentExtractedAt)
+		if err != nil {
+			return nil, err
+		}
+		emails = append(emails, email)
+	}
+	
+	return emails, rows.Err()
+}
+
+// GetEmailsByRelevanceScore retrieves emails above a certain relevance threshold
+func (e *EmailStore) GetEmailsByRelevanceScore(minScore float64, limit int) ([]EmailBodyEntry, error) {
+	query := `SELECT id, gmail_message_id, gmail_thread_id, sender, subject, date, 
+			  body_text, body_html, body_compressed, internal_timestamp, scan_method,
+			  processed_at, status, tracking_numbers, error_message, created_at, updated_at,
+			  COALESCE(processing_phase, 'legacy') as processing_phase,
+			  COALESCE(relevance_score, 0.0) as relevance_score,
+			  COALESCE(snippet, '') as snippet,
+			  COALESCE(has_content, FALSE) as has_content,
+			  metadata_extracted_at, content_extracted_at
+			  FROM processed_emails 
+			  WHERE relevance_score >= ?
+			  ORDER BY relevance_score DESC, date DESC`
+	
+	args := []interface{}{minScore}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	
+	rows, err := e.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var emails []EmailBodyEntry
+	for rows.Next() {
+		var email EmailBodyEntry
+		err := rows.Scan(
+			&email.ID, &email.GmailMessageID, &email.GmailThreadID, &email.From,
+			&email.Subject, &email.Date, &email.BodyText, &email.BodyHTML,
+			&email.BodyCompressed, &email.InternalTimestamp, &email.ScanMethod,
+			&email.ProcessedAt, &email.Status, &email.TrackingNumbers,
+			&email.ErrorMessage, &email.CreatedAt, &email.UpdatedAt,
+			&email.ProcessingPhase, &email.RelevanceScore, &email.Snippet,
+			&email.HasContent, &email.MetadataExtractedAt, &email.ContentExtractedAt)
+		if err != nil {
+			return nil, err
+		}
+		emails = append(emails, email)
+	}
+	
+	return emails, rows.Err()
+}
+
+// UpdateRelevanceScore updates the relevance score for an email
+func (e *EmailStore) UpdateRelevanceScore(gmailMessageID string, score float64) error {
+	query := `UPDATE processed_emails SET relevance_score = ?, updated_at = CURRENT_TIMESTAMP
+			  WHERE gmail_message_id = ?`
+	
+	result, err := e.db.Exec(query, score, gmailMessageID)
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
 }

@@ -109,7 +109,7 @@ func (e *TrackingExtractor) Extract(content *email.EmailContent) ([]email.Tracki
 	results := e.mergeResults(validated, llmResults)
 
 	// Stage 7: Final filtering and sorting
-	final := e.filterAndSort(results)
+	final := e.filterAndSort(results, content)
 
 	processingTime := time.Since(startTime)
 	if e.config.DebugMode {
@@ -767,6 +767,106 @@ func (e *TrackingExtractor) mergeResults(regexResults, llmResults []email.Tracki
 	return results
 }
 
+// extractDescriptionFromSubject extracts product description from email subject line
+func (e *TrackingExtractor) extractDescriptionFromSubject(subject, carrier string) string {
+	if subject == "" {
+		return ""
+	}
+
+	subject = strings.TrimSpace(subject)
+	
+	// Amazon-specific subject parsing
+	if strings.Contains(strings.ToLower(subject), "amazon") || carrier == "amazon" {
+		return e.extractAmazonDescriptionFromSubject(subject)
+	}
+	
+	// Generic shipping subject parsing
+	return e.extractGenericDescriptionFromSubject(subject)
+}
+
+// extractAmazonDescriptionFromSubject extracts product description from Amazon email subjects
+func (e *TrackingExtractor) extractAmazonDescriptionFromSubject(subject string) string {
+	// Amazon patterns:
+	// "Shipped: 'Kuject 320PCS Heat Shrink...' and 1 more item"
+	// "Delivered: 1 item | Order # 114-0213341-4089071"
+	// "Ordered: 'WOLFBOX MF50 Electric Air...'"
+	
+	// Look for quoted product names
+	patterns := []string{
+		`"([^"]+)"`,                    // "Product Name"
+		`'([^']+)'`,                    // 'Product Name'
+		`Shipped:\s*"([^"]+)"`,         // Shipped: "Product Name"
+		`Shipped:\s*'([^']+)'`,         // Shipped: 'Product Name'
+		`Ordered:\s*"([^"]+)"`,         // Ordered: "Product Name"
+		`Ordered:\s*'([^']+)'`,         // Ordered: 'Product Name'
+		`Delivered:\s*"([^"]+)"`,       // Delivered: "Product Name"
+		`Delivered:\s*'([^']+)'`,       // Delivered: 'Product Name'
+	}
+	
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(subject)
+		if len(matches) > 1 {
+			description := strings.TrimSpace(matches[1])
+			if description != "" && len(description) > 3 {
+				// Clean up common Amazon suffixes
+				description = e.cleanAmazonDescription(description)
+				return description
+			}
+		}
+	}
+	
+	return ""
+}
+
+// cleanAmazonDescription cleans up Amazon product descriptions
+func (e *TrackingExtractor) cleanAmazonDescription(description string) string {
+	// Remove common Amazon suffixes that get truncated
+	suffixes := []string{
+		"...",
+		"…",
+		" and more",
+		" and 1 more item",
+		" and 2 more items",
+		" and 3 more items",
+	}
+	
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(description, suffix) {
+			description = strings.TrimSuffix(description, suffix)
+			break
+		}
+	}
+	
+	return strings.TrimSpace(description)
+}
+
+// extractGenericDescriptionFromSubject extracts product description from generic shipping subjects
+func (e *TrackingExtractor) extractGenericDescriptionFromSubject(subject string) string {
+	// Generic patterns for other carriers
+	patterns := []string{
+		`Your\s+(.+)\s+has\s+shipped`,        // Your [Product] has shipped
+		`Tracking\s+for\s+(.+)`,              // Tracking for [Product]
+		`Shipment\s+of\s+(.+)`,               // Shipment of [Product]
+		`Delivery\s+of\s+(.+)`,               // Delivery of [Product]
+		`(.+)\s+has\s+been\s+shipped`,        // [Product] has been shipped
+		`(.+)\s+has\s+been\s+delivered`,      // [Product] has been delivered
+	}
+	
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(`(?i)` + pattern)
+		matches := re.FindStringSubmatch(subject)
+		if len(matches) > 1 {
+			description := strings.TrimSpace(matches[1])
+			if description != "" && len(description) > 3 {
+				return description
+			}
+		}
+	}
+	
+	return ""
+}
+
 // combineDescriptionAndMerchant formats description with merchant information
 func (e *TrackingExtractor) combineDescriptionAndMerchant(description, merchant string) string {
 	if description == "" && merchant == "" {
@@ -774,6 +874,10 @@ func (e *TrackingExtractor) combineDescriptionAndMerchant(description, merchant 
 	}
 
 	if description == "" {
+		// Handle empty merchant field better - don't create "Package from " without merchant
+		if merchant == "" || strings.TrimSpace(merchant) == "" {
+			return ""
+		}
 		return fmt.Sprintf("Package from %s", merchant)
 	}
 
@@ -785,13 +889,27 @@ func (e *TrackingExtractor) combineDescriptionAndMerchant(description, merchant 
 	return fmt.Sprintf("%s from %s", description, merchant)
 }
 
-// filterAndSort applies final filtering and sorts results
-func (e *TrackingExtractor) filterAndSort(results []email.TrackingInfo) []email.TrackingInfo {
+// filterAndSort applies final filtering and sorts results, with subject line description fallback
+func (e *TrackingExtractor) filterAndSort(results []email.TrackingInfo, content *email.EmailContent) []email.TrackingInfo {
 	// Filter by minimum confidence
 	var filtered []email.TrackingInfo
 	for _, result := range results {
 		if result.Confidence >= e.config.MinConfidence {
 			filtered = append(filtered, result)
+		}
+	}
+
+	// Enhance descriptions using subject line as fallback
+	for i := range filtered {
+		if filtered[i].Description == "" {
+			subjectDescription := e.extractDescriptionFromSubject(content.Subject, filtered[i].Carrier)
+			if subjectDescription != "" {
+				if filtered[i].Merchant != "" {
+					filtered[i].Description = fmt.Sprintf("%s from %s", subjectDescription, filtered[i].Merchant)
+				} else {
+					filtered[i].Description = subjectDescription
+				}
+			}
 		}
 	}
 

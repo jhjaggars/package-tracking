@@ -28,7 +28,9 @@ import (
 	"package-tracking/internal/config"
 	"package-tracking/internal/database"
 	"package-tracking/internal/handlers"
+	"package-tracking/internal/parser"
 	"package-tracking/internal/server"
+	"package-tracking/internal/services"
 	"package-tracking/internal/workers"
 
 	"github.com/go-chi/chi/v5"
@@ -108,6 +110,13 @@ func main() {
 		log.Printf("FedEx API credentials configured")
 	}
 
+	// Configure Amazon carrier (email-based tracking, no API credentials needed)
+	amazonConfig := &carriers.CarrierConfig{
+		PreferredType: carriers.ClientTypeScraping,
+	}
+	carrierFactory.SetCarrierConfig("amazon", amazonConfig)
+	log.Printf("Amazon carrier configured (email-based tracking)")
+
 	// Initialize structured logger for workers
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -132,6 +141,17 @@ func main() {
 		log.Printf("Automatic tracking updates disabled")
 	}
 
+	// Initialize description enhancer for admin API
+	extractorConfig := &parser.ExtractorConfig{
+		EnableLLM:           false, // LLM can be enabled via environment variables
+		MinConfidence:       0.5,
+		MaxCandidates:       10,
+		UseHybridValidation: true,
+		DebugMode:           false,
+	}
+	extractor := parser.NewTrackingExtractor(carrierFactory, extractorConfig, nil)
+	descriptionEnhancer := services.NewDescriptionEnhancer(db.Shipments, db.Emails, extractor, logger)
+
 	// Create chi router
 	r := chi.NewRouter()
 
@@ -151,7 +171,7 @@ func main() {
 	healthHandler := handlers.NewHealthHandler(db)
 	carrierHandler := handlers.NewCarrierHandler(db)
 	dashboardHandler := handlers.NewDashboardHandler(db)
-	adminHandler := handlers.NewAdminHandler(trackingUpdater)
+	adminHandler := handlers.NewAdminHandler(trackingUpdater, descriptionEnhancer, logger)
 	emailHandler := handlers.NewEmailHandler(db)
 	staticHandler := handlers.NewStaticHandler(staticFS)
 
@@ -189,6 +209,7 @@ func main() {
 			r.Get("/tracking-updater/status", adminHandler.GetTrackingUpdaterStatus)
 			r.Post("/tracking-updater/pause", adminHandler.PauseTrackingUpdater)
 			r.Post("/tracking-updater/resume", adminHandler.ResumeTrackingUpdater)
+			r.Post("/enhance-descriptions", adminHandler.EnhanceDescriptions)
 		})
 	})
 

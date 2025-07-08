@@ -129,13 +129,15 @@ Find tracking numbers for these carriers:
 - USPS: 20-22 digits, often starts with 94, 92, 93, 82
 - FedEx: 12 digits or 15 digits starting with 96
 - DHL: 10-11 digits
+- Amazon Logistics: Format like TBA123456789000 (starts with TBA, 15 characters)
+- Amazon Order: Format like 123-4567890-1234567 (3-7-7 digit pattern with dashes)
 
 Return JSON format:
 {
   "tracking_numbers": [
     {
       "number": "tracking_number_here",
-      "carrier": "ups|usps|fedex|dhl",
+      "carrier": "ups|usps|fedex|dhl|amazon",
       "confidence": 0.95
     }
   ]
@@ -162,6 +164,8 @@ Tracking number formats:
 - USPS: 20-22 digits, often starts with 94, 92, 93, 82
 - FedEx: 12 digits or 15 digits starting with 96
 - DHL: 10-11 digits
+- Amazon Logistics: Format like TBA123456789000 (starts with TBA, 15 characters)
+- Amazon Order: Format like 123-4567890-1234567 (3-7-7 digit pattern with dashes)
 
 For each tracking number found:
 1. Extract the tracking number and identify the carrier
@@ -223,6 +227,42 @@ Expected output:
   ]
 }
 
+Example 4 (Amazon Logistics):
+From: shipment-tracking@amazon.com
+Subject: Your package has been shipped
+Content: Your Amazon order #123-4567890-1234567 containing Echo Dot (5th Gen) Smart Speaker has been shipped via Amazon Logistics. Track your package: TBA123456789000
+
+Expected output:
+{
+  "tracking_numbers": [
+    {
+      "number": "TBA123456789000",
+      "carrier": "amazon",
+      "confidence": 0.95,
+      "description": "Echo Dot (5th Gen) Smart Speaker",
+      "merchant": "Amazon"
+    }
+  ]
+}
+
+Example 5 (Amazon Order Number):
+From: auto-confirm@amazon.com
+Subject: Your Amazon.com order of Fire TV Stick has shipped
+Content: Hello, your order 111-2233445-6677889 of Amazon Fire TV Stick 4K Max with Alexa Voice Remote has been shipped. You can track your order using this number.
+
+Expected output:
+{
+  "tracking_numbers": [
+    {
+      "number": "111-2233445-6677889",
+      "carrier": "amazon",
+      "confidence": 0.90,
+      "description": "Amazon Fire TV Stick 4K Max with Alexa Voice Remote",
+      "merchant": "Amazon"
+    }
+  ]
+}
+
 Instructions:
 - Extract specific product names, models, colors, sizes when available
 - Identify merchant from sender domain, subject line, or content
@@ -235,7 +275,7 @@ Return JSON format:
   "tracking_numbers": [
     {
       "number": "tracking_number_here",
-      "carrier": "ups|usps|fedex|dhl",
+      "carrier": "ups|usps|fedex|dhl|amazon",
       "confidence": 0.95,
       "description": "specific product description",
       "merchant": "merchant/retailer name"

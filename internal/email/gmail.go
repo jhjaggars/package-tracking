@@ -143,6 +143,99 @@ func (g *GmailClient) GetMessage(id string) (*EmailMessage, error) {
 	return emailMsg, nil
 }
 
+// GetMessageMetadata retrieves only the metadata of a specific message (headers, snippet, no content)
+func (g *GmailClient) GetMessageMetadata(id string) (*EmailMessage, error) {
+	msg, err := g.service.Users.Messages.Get(g.userID, id).Format("metadata").Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get message metadata %s: %w", id, err)
+	}
+	
+	// Parse the message metadata only
+	emailMsg, err := g.parseGmailMessageMetadata(msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse message metadata %s: %w", id, err)
+	}
+	
+	return emailMsg, nil
+}
+
+// GetMessagesSinceMetadataOnly retrieves messages since a specific time with metadata only
+func (g *GmailClient) GetMessagesSinceMetadataOnly(since time.Time) ([]EmailMessage, error) {
+	// Build search query for time-based search
+	query := fmt.Sprintf("after:%d", since.Unix())
+	log.Printf("Searching Gmail with metadata-only query: %s", query)
+	
+	// Execute search
+	req := g.service.Users.Messages.List(g.userID).Q(query)
+	if g.config.MaxResults > 0 {
+		req = req.MaxResults(g.config.MaxResults)
+	}
+	
+	resp, err := req.Do()
+	if err != nil {
+		return nil, fmt.Errorf("Gmail metadata search failed: %w", err)
+	}
+	
+	log.Printf("Found %d messages for metadata extraction", len(resp.Messages))
+	
+	var messages []EmailMessage
+	for _, msg := range resp.Messages {
+		// Rate limiting between requests
+		time.Sleep(g.config.RateLimitDelay)
+		
+		metadataMessage, err := g.GetMessageMetadata(msg.Id)
+		if err != nil {
+			log.Printf("Failed to get message metadata %s: %v", msg.Id, err)
+			continue
+		}
+		
+		messages = append(messages, *metadataMessage)
+	}
+	
+	return messages, nil
+}
+
+// parseGmailMessageMetadata converts Gmail API message metadata to EmailMessage (no content)
+func (g *GmailClient) parseGmailMessageMetadata(msg *gmail.Message) (*EmailMessage, error) {
+	emailMsg := &EmailMessage{
+		ID:       msg.Id,
+		ThreadID: msg.ThreadId,
+		Headers:  make(map[string]string),
+		Labels:   msg.LabelIds,
+		// Note: PlainText and HTMLText will be empty for metadata-only
+		PlainText: "",
+		HTMLText:  "",
+		Snippet:   msg.Snippet, // Gmail provides a snippet in metadata
+	}
+	
+	// Parse headers
+	if msg.Payload != nil && msg.Payload.Headers != nil {
+		for _, header := range msg.Payload.Headers {
+			emailMsg.Headers[header.Name] = header.Value
+			
+			switch header.Name {
+			case "Subject":
+				emailMsg.Subject = header.Value
+			case "From":
+				emailMsg.From = header.Value
+			case "To":
+				emailMsg.To = header.Value
+			case "Date":
+				if date, err := parseRFC2822Date(header.Value); err == nil {
+					emailMsg.Date = date
+				}
+			}
+		}
+	}
+	
+	// Set internal timestamp
+	if msg.InternalDate > 0 {
+		emailMsg.InternalDate = time.Unix(0, msg.InternalDate*int64(time.Millisecond))
+	}
+	
+	return emailMsg, nil
+}
+
 // parseGmailMessage converts Gmail API message to EmailMessage
 func (g *GmailClient) parseGmailMessage(msg *gmail.Message) (*EmailMessage, error) {
 	emailMsg := &EmailMessage{
@@ -226,6 +319,29 @@ func (g *GmailClient) htmlToText(html string) string {
 	text = re.ReplaceAllString(text, " ")
 	
 	return strings.TrimSpace(text)
+}
+
+// parseRFC2822Date parses an RFC2822 date string commonly found in email headers
+func parseRFC2822Date(dateStr string) (time.Time, error) {
+	// Common RFC2822 date formats found in email headers
+	formats := []string{
+		time.RFC1123Z,     // "Mon, 02 Jan 2006 15:04:05 -0700"
+		time.RFC1123,      // "Mon, 02 Jan 2006 15:04:05 MST"
+		time.RFC822Z,      // "02 Jan 06 15:04 -0700"
+		time.RFC822,       // "02 Jan 06 15:04 MST"
+		"Mon, 2 Jan 2006 15:04:05 -0700",   // Single digit day
+		"Mon, 02 Jan 2006 15:04:05 -0700 (MST)", // With timezone name in parentheses
+		"2 Jan 2006 15:04:05 -0700",        // Without day of week
+		"02 Jan 2006 15:04:05 -0700",       // Without day of week, zero-padded
+	}
+	
+	for _, format := range formats {
+		if parsed, err := time.Parse(format, dateStr); err == nil {
+			return parsed, nil
+		}
+	}
+	
+	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
 }
 
 // HealthCheck verifies the Gmail connection is working

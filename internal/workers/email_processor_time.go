@@ -51,6 +51,8 @@ type RateLimitResult struct {
 	ShouldBlock   bool
 	RemainingTime time.Duration
 	Reason        string
+	Allowed       bool   // For backward compatibility
+	Message       string // For backward compatibility
 }
 
 // CarrierFactory interface for creating carrier clients

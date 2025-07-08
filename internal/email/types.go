@@ -1,7 +1,13 @@
 package email
 
 import (
+	"errors"
 	"time"
+)
+
+// Common errors
+var (
+	ErrNotFound = errors.New("email not found")
 )
 
 // EmailClient defines the interface for email providers
@@ -11,6 +17,12 @@ type EmailClient interface {
 	
 	// GetMessage retrieves the full content of a specific message
 	GetMessage(id string) (*EmailMessage, error)
+	
+	// GetMessageMetadata retrieves only metadata (headers, snippet) for a message
+	GetMessageMetadata(id string) (*EmailMessage, error)
+	
+	// GetMessagesSinceMetadataOnly retrieves messages since a time with metadata only
+	GetMessagesSinceMetadataOnly(since time.Time) ([]EmailMessage, error)
 	
 	// HealthCheck verifies the client connection is working
 	HealthCheck() error
@@ -24,6 +36,7 @@ type EmailMessage struct {
 	ID       string            `json:"id"`
 	ThreadID string            `json:"thread_id"`
 	From     string            `json:"from"`
+	To       string            `json:"to"`
 	Subject  string            `json:"subject"`
 	Date     time.Time         `json:"date"`
 	Headers  map[string]string `json:"headers"`
@@ -31,9 +44,11 @@ type EmailMessage struct {
 	// Content in different formats
 	PlainText string `json:"plain_text"`
 	HTMLText  string `json:"html_text"`
+	Snippet   string `json:"snippet"` // Email preview/snippet for metadata-only processing
 	
 	// Gmail-specific fields
-	Labels []string `json:"labels,omitempty"`
+	Labels       []string  `json:"labels,omitempty"`
+	InternalDate time.Time `json:"internal_date,omitempty"`
 }
 
 // EmailContent represents preprocessed email content for parsing

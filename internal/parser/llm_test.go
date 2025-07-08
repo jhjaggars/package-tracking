@@ -107,12 +107,66 @@ func TestLLMExtractor_EnhancedPrompt(t *testing.T) {
 			},
 		},
 		{
+			name: "Amazon Logistics TBA tracking number",
+			emailContent: &email.EmailContent{
+				From:      "shipment-tracking@amazon.com",
+				Subject:   "Your package has been shipped",
+				PlainText: "Your Amazon order #123-4567890-1234567 containing Echo Dot (5th Gen) Smart Speaker has been shipped via Amazon Logistics. Track your package: TBA123456789000",
+				MessageID: "test-4",
+				Date:      time.Now(),
+			},
+			expectedJSON: `{
+				"tracking_numbers": [
+					{
+						"number": "TBA123456789000",
+						"carrier": "amazon",
+						"confidence": 0.95,
+						"description": "Echo Dot (5th Gen) Smart Speaker",
+						"merchant": "Amazon"
+					}
+				]
+			}`,
+			shouldContain: []string{
+				"Amazon Logistics",
+				"TBA123456789000",
+				"Echo Dot",
+				"Amazon",
+			},
+		},
+		{
+			name: "Amazon Order Number as tracking",
+			emailContent: &email.EmailContent{
+				From:      "auto-confirm@amazon.com",
+				Subject:   "Your Amazon.com order of Fire TV Stick has shipped",
+				PlainText: "Hello, your order 111-2233445-6677889 of Amazon Fire TV Stick 4K Max with Alexa Voice Remote has been shipped. You can track your order using this number.",
+				MessageID: "test-5",
+				Date:      time.Now(),
+			},
+			expectedJSON: `{
+				"tracking_numbers": [
+					{
+						"number": "111-2233445-6677889",
+						"carrier": "amazon",
+						"confidence": 0.90,
+						"description": "Amazon Fire TV Stick 4K Max with Alexa Voice Remote",
+						"merchant": "Amazon"
+					}
+				]
+			}`,
+			shouldContain: []string{
+				"Amazon Order",
+				"111-2233445-6677889",
+				"Fire TV Stick",
+				"Amazon",
+			},
+		},
+		{
 			name: "Email with no tracking information",
 			emailContent: &email.EmailContent{
 				From:      "newsletter@example.com",
 				Subject:   "Weekly Newsletter",
 				PlainText: "Check out our latest deals and promotions this week!",
-				MessageID: "test-4",
+				MessageID: "test-6",
 				Date:      time.Now(),
 			},
 			expectedJSON: `{
@@ -237,6 +291,42 @@ func TestLLMExtractor_ParseEnhancedResponse(t *testing.T) {
 			}`,
 			expectedCount: 0,
 			shouldError:   false,
+		},
+		{
+			name: "Amazon TBA tracking number response",
+			response: `{
+				"tracking_numbers": [
+					{
+						"number": "TBA123456789000",
+						"carrier": "amazon",
+						"confidence": 0.95,
+						"description": "Echo Dot (5th Gen) Smart Speaker",
+						"merchant": "Amazon"
+					}
+				]
+			}`,
+			expectedCount:   1,
+			expectedMerchant: "Amazon",
+			expectedDesc:    "Echo Dot (5th Gen) Smart Speaker",
+			shouldError:     false,
+		},
+		{
+			name: "Amazon Order Number tracking response",
+			response: `{
+				"tracking_numbers": [
+					{
+						"number": "111-2233445-6677889",
+						"carrier": "amazon",
+						"confidence": 0.90,
+						"description": "Amazon Fire TV Stick 4K Max with Alexa Voice Remote",
+						"merchant": "Amazon"
+					}
+				]
+			}`,
+			expectedCount:   1,
+			expectedMerchant: "Amazon",
+			expectedDesc:    "Amazon Fire TV Stick 4K Max with Alexa Voice Remote",
+			shouldError:     false,
 		},
 		{
 			name: "Invalid JSON response",
@@ -435,6 +525,8 @@ func TestLLMExtractor_FewShotPromptExamples(t *testing.T) {
 		"Example 1:",
 		"Example 2:",
 		"Example 3:",
+		"Example 4 (Amazon Logistics):",
+		"Example 5 (Amazon Order Number):",
 		"From: noreply@amazon.com",
 		"Subject: Your Amazon order has shipped",
 		"Apple iPhone 15 Pro 256GB Space Black",
@@ -444,6 +536,11 @@ func TestLLMExtractor_FewShotPromptExamples(t *testing.T) {
 		"From: support@bestbuy.com",
 		"Subject: Order Confirmation",
 		"Nike Air Max 270",
+		"TBA123456789000",
+		"Amazon Logistics",
+		"Echo Dot (5th Gen) Smart Speaker",
+		"111-2233445-6677889",
+		"Fire TV Stick 4K Max",
 	}
 	
 	for _, expected := range expectedExamples {

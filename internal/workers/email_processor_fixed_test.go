@@ -177,6 +177,35 @@ func (s *simpleEmailClient) HealthCheck() error {
 	return nil
 }
 
+func (s *simpleEmailClient) GetMessageMetadata(id string) (*email.EmailMessage, error) {
+	msg, err := s.GetMessage(id)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Create metadata-only version
+	metadata := *msg
+	metadata.PlainText = ""
+	metadata.HTMLText = ""
+	metadata.Snippet = "Email snippet for " + id
+	
+	return &metadata, nil
+}
+
+func (s *simpleEmailClient) GetMessagesSinceMetadataOnly(since time.Time) ([]email.EmailMessage, error) {
+	var result []email.EmailMessage
+	for _, msg := range s.emails {
+		if msg.Date.After(since) {
+			metadata := msg
+			metadata.PlainText = ""
+			metadata.HTMLText = ""
+			metadata.Snippet = "Email snippet for " + msg.ID
+			result = append(result, metadata)
+		}
+	}
+	return result, nil
+}
+
 func (s *simpleEmailClient) Close() error {
 	s.closed = true
 	return nil

@@ -56,6 +56,100 @@ func NewShipmentStore(db *sql.DB) *ShipmentStore {
 	return &ShipmentStore{db: db}
 }
 
+// GetByTrackingNumber returns a shipment by tracking number
+func (s *ShipmentStore) GetByTrackingNumber(trackingNumber string) (*Shipment, error) {
+	query := `SELECT id, tracking_number, carrier, description, status, 
+			  created_at, updated_at, expected_delivery, is_delivered,
+			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
+			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
+			  auto_refresh_fail_count, amazon_order_number, delegated_carrier,
+			  delegated_tracking_number, is_amazon_logistics 
+			  FROM shipments WHERE tracking_number = ?`
+	
+	var shipment Shipment
+	err := s.db.QueryRow(query, trackingNumber).Scan(&shipment.ID, &shipment.TrackingNumber,
+		&shipment.Carrier, &shipment.Description, &shipment.Status,
+		&shipment.CreatedAt, &shipment.UpdatedAt, &shipment.ExpectedDelivery,
+		&shipment.IsDelivered, &shipment.LastManualRefresh, &shipment.ManualRefreshCount,
+		&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
+		&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
+		&shipment.AutoRefreshFailCount, &shipment.AmazonOrderNumber,
+		&shipment.DelegatedCarrier, &shipment.DelegatedTrackingNumber,
+		&shipment.IsAmazonLogistics)
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	return &shipment, nil
+}
+
+// GetShipmentsWithPoorDescriptions returns shipments that have poor or missing descriptions
+func (s *ShipmentStore) GetShipmentsWithPoorDescriptions(limit int) ([]Shipment, error) {
+	query := `SELECT id, tracking_number, carrier, description, status, 
+			  created_at, updated_at, expected_delivery, is_delivered,
+			  last_manual_refresh, manual_refresh_count, last_auto_refresh,
+			  auto_refresh_count, auto_refresh_enabled, auto_refresh_error,
+			  auto_refresh_fail_count, amazon_order_number, delegated_carrier,
+			  delegated_tracking_number, is_amazon_logistics 
+			  FROM shipments 
+			  WHERE description = '' OR description LIKE 'Package from %' OR description IS NULL
+			  ORDER BY created_at DESC`
+	
+	args := []interface{}{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var shipments []Shipment
+	for rows.Next() {
+		var shipment Shipment
+		err := rows.Scan(&shipment.ID, &shipment.TrackingNumber, &shipment.Carrier,
+			&shipment.Description, &shipment.Status, &shipment.CreatedAt,
+			&shipment.UpdatedAt, &shipment.ExpectedDelivery, &shipment.IsDelivered,
+			&shipment.LastManualRefresh, &shipment.ManualRefreshCount,
+			&shipment.LastAutoRefresh, &shipment.AutoRefreshCount,
+			&shipment.AutoRefreshEnabled, &shipment.AutoRefreshError,
+			&shipment.AutoRefreshFailCount, &shipment.AmazonOrderNumber,
+			&shipment.DelegatedCarrier, &shipment.DelegatedTrackingNumber,
+			&shipment.IsAmazonLogistics)
+		if err != nil {
+			return nil, err
+		}
+		shipments = append(shipments, shipment)
+	}
+
+	return shipments, rows.Err()
+}
+
+// UpdateDescription updates only the description field of a shipment
+func (s *ShipmentStore) UpdateDescription(id int, description string) error {
+	query := `UPDATE shipments SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	
+	result, err := s.db.Exec(query, description, id)
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
+}
+
 // GetAll returns all shipments
 func (s *ShipmentStore) GetAll() ([]Shipment, error) {
 	query := `SELECT id, tracking_number, carrier, description, status, 
