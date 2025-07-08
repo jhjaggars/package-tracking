@@ -9,6 +9,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+// DEPRECATED: This file provides complex Viper-based multi-format email configuration support.
+// This approach is deprecated in favor of the simplified configuration system.
+// Use LoadSimplifiedConfig() from simplified.go instead.
+// See internal/parser/DEPRECATED.md for migration guide.
+
 // LoadEmailConfigWithViper loads email configuration using Viper
 func LoadEmailConfigWithViper(v *viper.Viper) (*EmailConfig, error) {
 	// Set defaults

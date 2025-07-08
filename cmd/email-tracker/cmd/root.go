@@ -331,6 +331,9 @@ func runEmailTracker(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("email client does not implement TimeBasedEmailClient interface")
 	}
 	
+	// Wrap the API client with the adapter
+	adaptedAPIClient := workers.NewAPIClientAdapter(apiClient)
+	
 	timeProcessor := workers.NewTimeBasedEmailProcessor(
 		timeProcessorConfig,
 		timeBasedClient,
@@ -338,7 +341,7 @@ func runEmailTracker(cmd *cobra.Command, args []string) error {
 		stateManager,  // Use stateManager for email state tracking
 		emailStore,    // Use emailStore for body storage (may be nil if disabled)
 		shipmentStore, // Use shipmentStore for linking emails to shipments
-		apiClient,
+		adaptedAPIClient,
 		logger,
 	)
 	

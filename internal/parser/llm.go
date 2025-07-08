@@ -12,6 +12,11 @@ import (
 )
 
 // LLMExtractor defines the interface for LLM-based tracking number extraction
+//
+// DEPRECATED: This interface is deprecated and should not be used for new development.
+// Use SimplifiedTrackingExtractorInterface for pattern-based tracking extraction and
+// SimplifiedDescriptionExtractorInterface for LLM-based description extraction instead.
+// See DEPRECATED.md for migration guide.
 type LLMExtractor interface {
 	// Extract tracking numbers using LLM analysis
 	Extract(content *email.EmailContent) ([]email.TrackingInfo, error)
@@ -47,6 +52,9 @@ func (n *NoOpLLMExtractor) IsEnabled() bool {
 }
 
 // LLMConfig holds configuration for LLM extractors
+//
+// DEPRECATED: This type is deprecated. Use SimplifiedLLMConfig instead.
+// See DEPRECATED.md for migration guide.
 type LLMConfig struct {
 	Provider    string
 	Model       string
@@ -60,6 +68,9 @@ type LLMConfig struct {
 }
 
 // LocalLLMExtractor implements LLM extraction using local endpoints (e.g., Ollama)
+//
+// DEPRECATED: This type is deprecated. Use OllamaLLMClient instead.
+// See DEPRECATED.md for migration guide.
 type LocalLLMExtractor struct {
 	config     *LLMConfig
 	httpClient *http.Client
@@ -442,6 +453,9 @@ func (l *LocalLLMExtractor) filterByConfidence(results []email.TrackingInfo, min
 }
 
 // NewLLMExtractor creates an appropriate LLM extractor based on configuration
+//
+// DEPRECATED: This function is deprecated. Use NewSimplifiedLLMClient instead.
+// See DEPRECATED.md for migration guide.
 func NewLLMExtractor(config *LLMConfig) LLMExtractor {
 	if !config.Enabled {
 		return NewNoOpLLMExtractor()

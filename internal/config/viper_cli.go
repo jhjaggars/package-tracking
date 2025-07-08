@@ -12,6 +12,11 @@ import (
 	"package-tracking/internal/cli"
 )
 
+// DEPRECATED: This file provides complex Viper-based multi-format CLI configuration support.
+// This approach is deprecated in favor of the simplified configuration system.
+// Use LoadSimplifiedConfig() from simplified.go instead.
+// See internal/parser/DEPRECATED.md for migration guide.
+
 // LoadCLIConfigWithViper loads CLI configuration using Viper
 func LoadCLIConfigWithViper(v *viper.Viper) (*cli.Config, error) {
 	// Set defaults
