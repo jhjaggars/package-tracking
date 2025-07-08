@@ -13,6 +13,51 @@ import (
 	"package-tracking/internal/email"
 )
 
+// StateManager interface for email state management
+type StateManager interface {
+	IsProcessed(messageID string) (bool, error)
+	MarkProcessed(entry *email.StateEntry) error
+	GetStats() (*email.EmailMetrics, error)
+	Cleanup(cutoff time.Time) error
+	Close() error
+}
+
+// CreateShipmentRequest represents a request to create a shipment
+type CreateShipmentRequest struct {
+	TrackingNumber string `json:"tracking_number"`
+	Carrier        string `json:"carrier"`
+	Description    string `json:"description"`
+}
+
+// APIClient interface for creating shipments
+type APIClient interface {
+	CreateShipment(ctx context.Context, req *CreateShipmentRequest) error
+}
+
+// APIClientAdapter adapts the existing API client to the new interface
+type APIClientAdapter struct {
+	client interface {
+		CreateShipment(tracking email.TrackingInfo) error
+	}
+}
+
+// NewAPIClientAdapter creates a new adapter
+func NewAPIClientAdapter(client interface {
+	CreateShipment(tracking email.TrackingInfo) error
+}) APIClient {
+	return &APIClientAdapter{client: client}
+}
+
+// CreateShipment implements the APIClient interface
+func (a *APIClientAdapter) CreateShipment(ctx context.Context, req *CreateShipmentRequest) error {
+	tracking := email.TrackingInfo{
+		Number:      req.TrackingNumber,
+		Carrier:     req.Carrier,
+		Description: req.Description,
+	}
+	return a.client.CreateShipment(tracking)
+}
+
 // TrackingExtractor interface for extracting tracking information from emails
 type TrackingExtractor interface {
 	Extract(content *email.EmailContent) ([]email.TrackingInfo, error)
@@ -518,7 +563,12 @@ func (p *TimeBasedEmailProcessor) createShipment(tracking email.TrackingInfo) er
 	var lastErr error
 
 	for attempt < p.config.RetryCount {
-		err := p.apiClient.CreateShipment(tracking)
+		req := &CreateShipmentRequest{
+			TrackingNumber: tracking.Number,
+			Carrier:        tracking.Carrier,
+			Description:    tracking.Description,
+		}
+		err := p.apiClient.CreateShipment(context.Background(), req)
 		if err == nil {
 			p.metrics.incrementShipmentsCreated()
 			return nil
