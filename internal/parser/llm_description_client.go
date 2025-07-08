@@ -3,8 +3,10 @@ package parser
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -57,17 +59,23 @@ func (n *NoOpLLMClient) ExtractDescription(ctx context.Context, emailContent str
 
 // OllamaLLMClient implements LLMClient for local Ollama instances
 type OllamaLLMClient struct {
-	config     *SimplifiedLLMConfig
-	httpClient *http.Client
+	config       *SimplifiedLLMConfig
+	httpClient   *http.Client
+	sanitizer    *ContentSanitizer
+	securityUtils *SecurityUtils
+	validator    *InputValidator
+	rateLimiter  *RateLimiter
 }
 
 // NewOllamaLLMClient creates a new Ollama LLM client
 func NewOllamaLLMClient(config *SimplifiedLLMConfig) LLMClient {
 	return &OllamaLLMClient{
-		config: config,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
+		config:        config,
+		httpClient:    createSecureHTTPClient(config),
+		sanitizer:     NewContentSanitizer(),
+		securityUtils: NewSecurityUtils(),
+		validator:     NewInputValidator(),
+		rateLimiter:   DefaultLLMRateLimiter(),
 	}
 }
 
@@ -77,19 +85,34 @@ func (o *OllamaLLMClient) ExtractDescription(ctx context.Context, emailContent s
 		return DescriptionResult{}, nil
 	}
 
+	// Validate and sanitize inputs
+	validationResult := o.validator.ValidateEmailProcessingInput(emailContent, trackingNumber)
+	if !validationResult.IsValid {
+		return DescriptionResult{}, fmt.Errorf("input validation failed: %v", validationResult.Errors)
+	}
+
+	// Use sanitized inputs for processing
+	sanitizedContent := validationResult.SanitizedEmail
+	sanitizedTrackingNumber := validationResult.SanitizedTrackingNumber
+
+	// Apply rate limiting to prevent service overwhelm
+	if err := o.rateLimiter.Wait(ctx); err != nil {
+		return DescriptionResult{}, o.securityUtils.SafeErrorMessage("rate limit exceeded", err)
+	}
+
 	// Build focused prompt for description extraction only
-	prompt := o.buildDescriptionPrompt(emailContent, trackingNumber)
+	prompt := o.buildDescriptionPrompt(sanitizedContent, sanitizedTrackingNumber)
 	
 	// Call Ollama API
 	response, err := o.callOllama(ctx, prompt)
 	if err != nil {
-		return DescriptionResult{}, fmt.Errorf("Ollama API call failed: %w", err)
+		return DescriptionResult{}, o.securityUtils.SafeErrorMessage("Ollama API call failed", err)
 	}
 
 	// Parse response
 	result, err := o.parseDescriptionResponse(response)
 	if err != nil {
-		return DescriptionResult{}, fmt.Errorf("failed to parse LLM response: %w", err)
+		return DescriptionResult{}, o.securityUtils.SafeErrorMessage("failed to parse LLM response", err)
 	}
 
 	return result, nil
@@ -97,6 +120,7 @@ func (o *OllamaLLMClient) ExtractDescription(ctx context.Context, emailContent s
 
 // buildDescriptionPrompt creates a focused prompt for description extraction only
 func (o *OllamaLLMClient) buildDescriptionPrompt(emailContent string, trackingNumber string) string {
+	// Note: emailContent and trackingNumber should already be sanitized by caller
 	prompt := fmt.Sprintf(`Extract the product description and merchant information from this shipping email. Return ONLY a JSON response.
 
 Email Content: %s
@@ -128,7 +152,7 @@ Return JSON format:
   "description": "specific product description here",
   "merchant": "merchant/retailer name",
   "confidence": 0.95
-}`, o.truncateContent(emailContent), trackingNumber)
+}`, emailContent, trackingNumber)
 
 	return prompt
 }
@@ -155,16 +179,23 @@ func (o *OllamaLLMClient) callOllama(ctx context.Context, prompt string) (string
 
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", o.securityUtils.SafeErrorMessage("failed to marshal request", err)
 	}
 
 	// Create HTTP request with context
 	req, err := http.NewRequestWithContext(ctx, "POST", o.config.Endpoint+"/api/generate", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", o.securityUtils.SafeErrorMessage("failed to create request", err)
 	}
 
+	// Set security headers
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "package-tracker-llm-client/1.0")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Connection", "close") // Prevent connection reuse for security
+	
+	// Set authentication header if API key is provided
 	if o.config.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+o.config.APIKey)
 	}
@@ -172,7 +203,7 @@ func (o *OllamaLLMClient) callOllama(ctx context.Context, prompt string) (string
 	// Make the request
 	resp, err := o.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
+		return "", o.securityUtils.SafeErrorMessage("request failed", err)
 	}
 	defer resp.Body.Close()
 
@@ -187,7 +218,7 @@ func (o *OllamaLLMClient) callOllama(ctx context.Context, prompt string) (string
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+		return "", o.securityUtils.SafeErrorMessage("failed to decode response", err)
 	}
 
 	return ollamaResp.Response, nil
@@ -219,6 +250,59 @@ func (o *OllamaLLMClient) parseDescriptionResponse(response string) (Description
 		Merchant:    strings.TrimSpace(parsed.Merchant),
 		Confidence:  parsed.Confidence,
 	}, nil
+}
+
+// createSecureHTTPClient creates an HTTP client with security best practices
+func createSecureHTTPClient(config *SimplifiedLLMConfig) *http.Client {
+	// Configure TLS with security best practices
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12, // Minimum TLS 1.2
+		InsecureSkipVerify: false,            // Always verify certificates
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+		},
+	}
+
+	// Configure transport with security settings and timeouts
+	transport := &http.Transport{
+		// Connection timeouts
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second, // Connection timeout
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		
+		// TLS configuration
+		TLSClientConfig: tlsConfig,
+		
+		// Connection limits to prevent resource exhaustion
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 2,
+		MaxConnsPerHost:     5,
+		
+		// Timeouts
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		
+		// Security settings
+		DisableKeepAlives: false, // Enable keep-alives for performance
+		DisableCompression: false, // Enable compression
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   config.Timeout, // Overall request timeout
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Limit redirects to prevent redirect loops and abuse
+			if len(via) >= 3 {
+				return fmt.Errorf("stopped after 3 redirects")
+			}
+			return nil
+		},
+	}
 }
 
 // NewSimplifiedLLMClient creates an appropriate LLM client based on configuration
